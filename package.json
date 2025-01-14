@@ -1,0 +1,50 @@
+{
+  "name": "foundernest-amqp-client",
+  "version": "0.1.0",
+  "description": "AMQP Client",
+  "author": "FounderNest",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "exports": {
+    ".": {
+      "require": {
+        "default": "./dist/cjs/index.js",
+        "types": "./dist/types/cjs/index.d.ts"
+      },
+      "import": {
+        "default":  "./dist/esm/index.js",
+        "types": "./dist/types/esm/index.d.ts"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "package.json"
+  ],
+  "type": "module",
+  "scripts": {
+    "test": "jest",
+    "build:esm": "tsc --project tsconfig.json",
+    "build:cjs": "tsc --project tsconfig.cjs.json",
+    "build:types": "tsc --declaration --emitDeclarationOnly",
+    "build": "tsc && npm run build:esm && npm run build:cjs && npm run build:types && rollup -c"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "amqplib": "^0.10.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^24.0.0",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@types/amqplib": "^0.10.6",
+    "@types/jest": "^29.0.0",
+    "jest": "^29.0.0",
+    "rollup": "^3.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}
