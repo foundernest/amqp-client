@@ -51,33 +51,33 @@ export class AMQPClient implements AMQPClientInterface {
       await this.channel.prefetch(1)
       this.reconnectAttempts = 0
 
-      this.logger.info('Connected to AMQP broker.')
+      this.logger.info('📭️ Connected to AMQP broker.')
 
       this.connection.on('error', (err: Error): void => {
-        this.logger.error('AMQP Connection Error:', err)
+        this.logger.error('🚨 AMQP Connection Error:', err)
         this.reconnect()
       })
 
       this.connection.on('close', (): void => {
-        this.logger.warn('AMQP Connection Closed')
+        this.logger.warn('⚠️ AMQP Connection Closed')
         this.reconnect()
       })
     } catch (error) {
-      this.logger.error('Failed to connect to AMQP broker:', error)
+      this.logger.error('🚨 Failed to connect to AMQP broker:', error)
       await this.reconnect()
     }
   }
 
   private async reconnect(): Promise<void> {
     if (this.reconnectAttempts >= this.options.reconnection.maxAttempts) {
-      this.logger.error('Max reconnection attempts reached. Giving up.')
+      this.logger.error('🚨 Max reconnection attempts reached. Giving up.')
       return
     }
 
     const delay = this.calculateBackoffDelay(this.reconnectAttempts)
     this.reconnectAttempts++
 
-    this.logger.warn(`Reconnecting (Attempt ${this.reconnectAttempts})`)
+    this.logger.warn(`⚠️ Reconnecting (Attempt ${this.reconnectAttempts})`)
 
     return new Promise((resolve) => {
       setTimeout(async () => {
@@ -85,7 +85,7 @@ export class AMQPClient implements AMQPClientInterface {
           await this.connect()
           resolve()
         } catch (err) {
-          this.logger.error('Reconnection failed:', err)
+          this.logger.error('🚨 Reconnection failed:', err)
           resolve()
         }
       }, delay)
@@ -108,9 +108,9 @@ export class AMQPClient implements AMQPClientInterface {
       if (this.connection) {
         await this.connection.close()
       }
-      this.logger.info('AMQP connection closed.')
+      this.logger.info('📪️ AMQP connection closed.')
     } catch (error) {
-      this.logger.error('Error closing AMQP connection:', error)
+      this.logger.error('🚨 Error closing AMQP connection:', error)
     } finally {
       this.connection = null
       this.channel = null
@@ -126,12 +126,12 @@ export class AMQPClient implements AMQPClientInterface {
   }: MessagePublishOptions = {}): Promise<boolean> {
     await this.ensureConnection()
     if (!this.channel) {
-      throw new Error('Channel is not available')
+      throw new Error('💥 Channel is not available')
     }
 
     await this.assertQueue({ queueName, deadLetter })
 
-    this.logger.info(`Sending message to queue: ${queueName}`)
+    this.logger.info(`📨 Sending message to queue: ${queueName}`)
     return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       headers,
       correlationId,
@@ -155,10 +155,10 @@ export class AMQPClient implements AMQPClientInterface {
   ): Promise<void> {
     await this.ensureConnection()
     if (!this.channel) {
-      throw new Error('Channel is not available')
+      throw new Error('💥 Channel is not available')
     }
 
-    this.logger.info(`Starting to consume messages from queue: ${queueName}`)
+    this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
 
     await this.assertQueue({
       queueName,
@@ -196,14 +196,14 @@ export class AMQPClient implements AMQPClientInterface {
 
           if (!requeue) {
             this.logger.warn(
-              `Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
+              `⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
             )
           }
         } else {
           this.channel.ack(msg)
         }
       } catch (error) {
-        this.logger.error('Message processing error:', error)
+        this.logger.error('🚨 Message processing error:', error)
         this.channel.nack(msg, false, false)
       }
     })
@@ -216,10 +216,11 @@ export class AMQPClient implements AMQPClientInterface {
     queueName: string
     deadLetter: boolean
   }): Promise<amqp.Replies.AssertQueue> {
+    this.logger.info(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`)
     await this.ensureConnection()
 
     if (!this.channel) {
-      throw new Error('Channel is not available')
+      throw new Error('💥 Channel is not available')
     }
 
     const queueOptions: amqp.Options.AssertQueue = {
@@ -235,8 +236,6 @@ export class AMQPClient implements AMQPClientInterface {
       const exchangeName = `${queueName}.dlx`
       const dlqName = `${queueName}.dlq`
       const routingKey = `${queueName}.dead`
-
-      this.logger.info(`Configuring dead-letter queue for: ${queueName}`)
 
       await this.channel.assertExchange(exchangeName, 'direct', {
         durable: true,
