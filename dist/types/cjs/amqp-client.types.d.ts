@@ -25,6 +25,7 @@ export interface MessagePublishOptions {
     correlationId?: string;
     persistent?: boolean;
     deliveryMode?: number;
+    deadLetter?: boolean;
 }
 /**
  * Configuration options for consuming messages from an AMQP queue.

@@ -120,6 +120,7 @@ export class AMQPClient implements AMQPClientInterface {
   async sendMessage<T = any>(queueName: string, message: T, {
     headers,
     persistent = true,
+    deadLetter = true,
     deliveryMode = 2,
     correlationId
   }: MessagePublishOptions = {}): Promise<boolean> {
@@ -128,7 +129,8 @@ export class AMQPClient implements AMQPClientInterface {
       throw new Error('Channel is not available')
     }
 
-    await this.channel.assertQueue(queueName, {arguments: {'x-queue-type': 'quorum'}})
+    await this.assertQueue({ queueName, deadLetter })
+
     this.logger.info(`Sending message to queue: ${queueName}`)
     return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       headers,
