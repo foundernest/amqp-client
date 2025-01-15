@@ -178,18 +178,32 @@ export class AMQPClient {
             const exchangeName = `${queueName}.dlx`;
             const dlqName = `${queueName}.dlq`;
             const routingKey = `${queueName}.dead`;
-            await this.channel.assertExchange(exchangeName, 'direct', {
-                durable: true,
-                autoDelete: false,
-            });
-            await this.channel.assertQueue(dlqName, {
-                durable: true,
-                arguments: {
-                    'x-queue-type': 'quorum',
-                    'x-message-ttl': this.options.messageExpiration.deadLetterQueueTTL,
-                },
-            });
-            await this.channel.bindQueue(dlqName, exchangeName, routingKey);
+            try {
+                await this.channel.checkExchange(exchangeName);
+                this.logger.info(`🗿 Exchange "${exchangeName}" exists`);
+            }
+            catch (e) {
+                this.logger.info(`🗿 Creating exchange "${exchangeName}"`);
+                await this.channel.assertExchange(exchangeName, 'direct', {
+                    durable: true,
+                    autoDelete: false,
+                });
+            }
+            try {
+                await this.channel.checkQueue(dlqName);
+                this.logger.info(`🗿 Dead letter queue "${dlqName}" exists`);
+            }
+            catch (e) {
+                this.logger.info(`🗿 Creating and binding dead letter queue "${dlqName}"`);
+                await this.channel.assertQueue(dlqName, {
+                    durable: true,
+                    arguments: {
+                        'x-queue-type': 'quorum',
+                        'x-message-ttl': this.options.messageExpiration.deadLetterQueueTTL,
+                    },
+                });
+                await this.channel.bindQueue(dlqName, exchangeName, routingKey);
+            }
             queueOptions.deadLetterExchange = exchangeName;
             queueOptions.deadLetterRoutingKey = routingKey;
             queueOptions.arguments = {
@@ -198,6 +212,15 @@ export class AMQPClient {
                 'x-dead-letter-routing-key': routingKey,
             };
         }
-        return this.channel.assertQueue(queueName, queueOptions);
+        let queue;
+        try {
+            queue = await this.channel.checkQueue(queueName);
+            this.logger.info(`🗿 Queue "${queueName}" exists`);
+        }
+        catch (e) {
+            this.logger.info(`🗿 Creating queue "${queueName}"`);
+            queue = await this.channel.assertQueue(queueName, queueOptions);
+        }
+        return queue;
     }
 }
