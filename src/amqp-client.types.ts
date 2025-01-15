@@ -26,6 +26,7 @@ export interface MessagePublishOptions {
   correlationId?: string
   persistent?: boolean,
   deliveryMode?: number,
+  deadLetter?: boolean,
 }
 
 /**
