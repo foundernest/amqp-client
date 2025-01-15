@@ -15,8 +15,8 @@ A TypeScript-based AMQP client that supports both ESM and CommonJS modules. This
 
 To install the package, use npm or yarn:
 
--   `npm install amqp-client`
--   `yarn add amqp-client`
+-   `npm install foundernest-amqp-client`
+-   `yarn add foundernest-amqp-client`
 
 ## Usage
 
@@ -26,12 +26,12 @@ You can import the client using either ESM or CommonJS.
 
 For ESM, use:  
 ```
-import { AMQPClient } from 'amqp-client';
+import { AMQPClient } from 'foundernest-amqp-client';
 ```
 
 For CommonJS, use:  
 ```
-const { AMQPClient } = require('amqp-client');
+const { AMQPClient } = require('foundernest-amqp-client');
 ```
 
 ### Creating an AMQP Client
@@ -105,7 +105,7 @@ await client.close();
 
 ### Logging
 
-You can provide a custom logger that implements the methods  `info`,  `warn`, and  `error`. By default, the client's logging will use the console.
+You can provide a custom logger that implements the methods  `debug`,  `info`,  `warn`, and  `error`. By default, the client's logging will use the console.
 
 ## Testing
 
