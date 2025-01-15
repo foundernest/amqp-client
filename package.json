@@ -1,6 +1,6 @@
 {
   "name": "foundernest-amqp-client",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "AMQP Client",
   "author": "FounderNest",
   "main": "dist/cjs/index.js",
