@@ -4,7 +4,7 @@
   "description": "AMQP Client",
   "author": "FounderNest",
   "default": "./dist/index.js",
-  "types": "./dist/types/index.d.ts",
+  "types": "./dist/index.d.ts",
   "type": "module",
   "scripts": {
     "test": "jest",
