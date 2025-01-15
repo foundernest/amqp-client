@@ -33,7 +33,7 @@ export class AMQPClient {
             this.channel = await this.connection.createChannel();
             await this.channel.prefetch(1);
             this.reconnectAttempts = 0;
-            this.logger.info('Connected to AMQP broker.');
+            this.logger.info('📭️ Connected to AMQP broker.');
             this.connection.on('error', (err) => {
                 this.logger.error('🚨 AMQP Connection Error:', err);
                 this.reconnect();
@@ -97,7 +97,7 @@ export class AMQPClient {
             throw new Error('💥 Channel is not available');
         }
         await this.assertQueue({ queueName, deadLetter });
-        this.logger.debug(`📨 Sending message to queue: ${queueName}`);
+        this.logger.info(`📨 Sending message to queue: ${queueName}`);
         return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
             headers,
             correlationId,
@@ -155,12 +155,13 @@ export class AMQPClient {
                 }
             }
             catch (error) {
-                this.logger.error('🚨 Message processing failed:', error);
+                this.logger.error('🚨 Message processing error:', error);
                 this.channel.nack(msg, false, false);
             }
         });
     }
     async assertQueue({ queueName, deadLetter, }) {
+        this.logger.info(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`);
         await this.ensureConnection();
         if (!this.channel) {
             throw new Error('💥 Channel is not available');
@@ -177,7 +178,6 @@ export class AMQPClient {
             const exchangeName = `${queueName}.dlx`;
             const dlqName = `${queueName}.dlq`;
             const routingKey = `${queueName}.dead`;
-            this.logger.debug(`Configuring dead-letter queue for: ${queueName}`);
             await this.channel.assertExchange(exchangeName, 'direct', {
                 durable: true,
                 autoDelete: false,

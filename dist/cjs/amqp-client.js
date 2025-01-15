@@ -69,29 +69,29 @@ class AMQPClient {
             this.channel = await this.connection.createChannel();
             await this.channel.prefetch(1);
             this.reconnectAttempts = 0;
-            this.logger.info('Connected to AMQP broker.');
+            this.logger.info('📭️ Connected to AMQP broker.');
             this.connection.on('error', (err) => {
-                this.logger.error('AMQP Connection Error:', err);
+                this.logger.error('🚨 AMQP Connection Error:', err);
                 this.reconnect();
             });
             this.connection.on('close', () => {
-                this.logger.warn('AMQP Connection Closed');
+                this.logger.warn('⚠️ AMQP Connection Closed');
                 this.reconnect();
             });
         }
         catch (error) {
-            this.logger.error('Failed to connect to AMQP broker:', error);
+            this.logger.error('🚨 Failed to connect to AMQP broker:', error);
             await this.reconnect();
         }
     }
     async reconnect() {
         if (this.reconnectAttempts >= this.options.reconnection.maxAttempts) {
-            this.logger.error('Max reconnection attempts reached. Giving up.');
+            this.logger.error('🚨 Max reconnection attempts reached. Giving up.');
             return;
         }
         const delay = this.calculateBackoffDelay(this.reconnectAttempts);
         this.reconnectAttempts++;
-        this.logger.warn(`Reconnecting (Attempt ${this.reconnectAttempts})`);
+        this.logger.warn(`⚠️ Reconnecting (Attempt ${this.reconnectAttempts})`);
         return new Promise((resolve) => {
             setTimeout(async () => {
                 try {
@@ -99,7 +99,7 @@ class AMQPClient {
                     resolve();
                 }
                 catch (err) {
-                    this.logger.error('Reconnection failed:', err);
+                    this.logger.error('🚨 Reconnection failed:', err);
                     resolve();
                 }
             }, delay);
@@ -117,10 +117,10 @@ class AMQPClient {
             if (this.connection) {
                 await this.connection.close();
             }
-            this.logger.info('AMQP connection closed.');
+            this.logger.info('📪️ AMQP connection closed.');
         }
         catch (error) {
-            this.logger.error('Error closing AMQP connection:', error);
+            this.logger.error('🚨 Error closing AMQP connection:', error);
         }
         finally {
             this.connection = null;
@@ -130,10 +130,10 @@ class AMQPClient {
     async sendMessage(queueName, message, { headers, persistent = true, deadLetter = true, deliveryMode = 2, correlationId } = {}) {
         await this.ensureConnection();
         if (!this.channel) {
-            throw new Error('Channel is not available');
+            throw new Error('💥 Channel is not available');
         }
         await this.assertQueue({ queueName, deadLetter });
-        this.logger.info(`Sending message to queue: ${queueName}`);
+        this.logger.info(`📨 Sending message to queue: ${queueName}`);
         return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
             headers,
             correlationId,
@@ -151,9 +151,9 @@ class AMQPClient {
     async createListener(queueName, onMessage, options) {
         await this.ensureConnection();
         if (!this.channel) {
-            throw new Error('Channel is not available');
+            throw new Error('💥 Channel is not available');
         }
-        this.logger.info(`Starting to consume messages from queue: ${queueName}`);
+        this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`);
         await this.assertQueue({
             queueName,
             deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
@@ -183,7 +183,7 @@ class AMQPClient {
                     const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries;
                     this.channel.nack(msg, false, requeue);
                     if (!requeue) {
-                        this.logger.warn(`Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`);
+                        this.logger.warn(`⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`);
                     }
                 }
                 else {
@@ -191,15 +191,16 @@ class AMQPClient {
                 }
             }
             catch (error) {
-                this.logger.error('Message processing error:', error);
+                this.logger.error('🚨 Message processing error:', error);
                 this.channel.nack(msg, false, false);
             }
         });
     }
     async assertQueue({ queueName, deadLetter, }) {
+        this.logger.info(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`);
         await this.ensureConnection();
         if (!this.channel) {
-            throw new Error('Channel is not available');
+            throw new Error('💥 Channel is not available');
         }
         const queueOptions = {
             durable: true,
@@ -213,7 +214,6 @@ class AMQPClient {
             const exchangeName = `${queueName}.dlx`;
             const dlqName = `${queueName}.dlq`;
             const routingKey = `${queueName}.dead`;
-            this.logger.info(`Configuring dead-letter queue for: ${queueName}`);
             await this.channel.assertExchange(exchangeName, 'direct', {
                 durable: true,
                 autoDelete: false,
