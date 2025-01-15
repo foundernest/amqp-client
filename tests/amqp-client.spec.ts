@@ -1,5 +1,5 @@
-import amqp from 'amqplib';
-import {AMQPClient} from '../src/amqp-client';
+import {connect} from 'amqplib';
+import {AMQPClient} from '../src';
 
 jest.mock('amqplib');
 
@@ -7,6 +7,7 @@ const mockLogger = {
   info: jest.fn(),
   warn: jest.fn(),
   error: jest.fn(),
+  debug: jest.fn(),
 };
 
 const mockConnection = {
@@ -16,6 +17,7 @@ const mockConnection = {
 };
 
 const mockChannel = {
+  checkQueue: jest.fn(),
   assertQueue: jest.fn(),
   sendToQueue: jest.fn(),
   consume: jest.fn(),
@@ -23,6 +25,7 @@ const mockChannel = {
   close: jest.fn(),
   ack: jest.fn(),
   nack: jest.fn(),
+  checkExchange: jest.fn(),
   assertExchange: jest.fn(),
   bindQueue: jest.fn(),
 };
@@ -43,7 +46,7 @@ let onMessageMock = jest.fn()
 beforeAll(() => {
   jest.clearAllMocks();
 
-  connectMock = amqp.connect as jest.Mock
+  connectMock = connect as jest.Mock
 });
 beforeEach(() => {
   jest.clearAllMocks();
@@ -55,17 +58,39 @@ describe('When a message is sent', () => {
   beforeEach(async () => {
     const client = generateClient()
     await client.sendMessage('test-queue', {key: 'value'});
+    mockChannel.checkExchange.mockRejectedValue(new Error())
+    mockChannel.checkQueue.mockRejectedValue(new Error())
   });
 
   it('should create a connection', async () => {
     expect(connectMock).toHaveBeenCalledWith('amqp://guest:guest@localhost:1234/test');
     expect(mockConnection.createChannel).toHaveBeenCalled();
     expect(mockChannel.prefetch).toHaveBeenCalledWith(1);
-    expect(mockLogger.info).toHaveBeenCalledWith('Connected to AMQP broker.');
+    expect(mockLogger.info).toHaveBeenCalledWith('📭️ Connected to AMQP broker.');
   });
 
   it('should ensure a quorum queue exists', async () => {
-    expect(mockChannel.assertQueue).toHaveBeenCalledWith('test-queue', {arguments: {'x-queue-type': 'quorum'}});
+    expect(mockChannel.checkExchange).toHaveBeenCalledWith('test-queue.dlx');
+    expect(mockChannel.checkQueue).toHaveBeenCalledWith('test-queue.dlq');
+    expect(mockChannel.assertQueue).nthCalledWith(1,'test-queue.dlq', {
+      arguments: {
+        'x-message-ttl': 2592000000,
+        'x-queue-type': 'quorum'
+      },
+      durable: true
+    });
+    expect(mockChannel.assertQueue).nthCalledWith(2, 'test-queue', {
+      arguments: {
+        "x-dead-letter-exchange": "test-queue.dlx",
+        "x-dead-letter-routing-key": "test-queue.dead",
+        "x-max-retries": 3,
+        'x-queue-type': 'quorum'
+      },
+      deadLetterExchange: "test-queue.dlx",
+      deadLetterRoutingKey: "test-queue.dead",
+      durable: true,
+      exclusive: false,
+    });
   });
 
   it('should enqueue a message', async () => {
@@ -87,6 +112,8 @@ describe('When a queue is listened', () => {
 
     const client = generateClient()
     await client.createListener('test-queue', onMessageMock);
+    mockChannel.checkExchange.mockRejectedValue(new Error())
+    mockChannel.checkQueue.mockRejectedValue(new Error())
   });
 
   it('should create a connection', async () => {
@@ -136,7 +163,8 @@ describe('When a queue is listened', () => {
 
 describe('When a connection fails', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    mockChannel.checkExchange.mockRejectedValue(new Error())
+    mockChannel.checkQueue.mockRejectedValue(new Error())
   });
 
   it('should successfully reconnect and send a message', async () => {
@@ -147,6 +175,7 @@ describe('When a connection fails', () => {
     const client = generateClient();
     await client.sendMessage('test-queue', {key: 'value'});
 
+    expect(connectMock).toHaveBeenCalledTimes(2);
     expect(mockChannel.sendToQueue).toHaveBeenCalled();
   });
 
@@ -174,7 +203,6 @@ describe('When a connection fails', () => {
 
     const client = generateClient();
     await expect(client.sendMessage('test-queue', {key: 'value'})).rejects.toThrow('Channel is not available');
-    jest.advanceTimersByTime(30000);
 
     expect(connectMock).toBeCalledTimes(6)
   }, 50000);
@@ -185,7 +213,7 @@ describe('When a logger is provided', () => {
     const client = generateClient()
     await client.sendMessage('test-queue', {key: 'value'});
 
-    expect(mockLogger.info).toHaveBeenCalledWith('Connected to AMQP broker.');
+    expect(mockLogger.info).toHaveBeenCalledWith('📭️ Connected to AMQP broker.');
   });
 })
 
@@ -222,13 +250,13 @@ describe('When correlation ID is used', () => {
 
   beforeEach(async () => {
     client = generateClient();
-    await client.sendMessage('test-queue', { key: 'value' }, { correlationId: 'test-correlation-id' });
+    await client.sendMessage('test-queue', {key: 'value'}, {correlationId: 'test-correlation-id'});
   });
 
   it('should set the correlation ID when sending a message', async () => {
     expect(mockChannel.sendToQueue).toHaveBeenCalledWith(
       'test-queue',
-      Buffer.from(JSON.stringify({ key: 'value' })),
+      Buffer.from(JSON.stringify({key: 'value'})),
       expect.objectContaining({
         correlationId: 'test-correlation-id',
         contentType: 'application/json',
@@ -241,8 +269,8 @@ describe('When correlation ID is used', () => {
   it('should only consume message with matching matching correlation ID', async () => {
     // Create the listener
     await client.createListener('test-queue', onMessageMock);
-    await client.sendMessage('test-queue', { key: 'value' }, { correlationId: 'test-correlation-id' });
-    await client.sendMessage('test-queue', { key: 'value' }, { correlationId: 'non-matching-id' });
+    await client.sendMessage('test-queue', {key: 'value'}, {correlationId: 'test-correlation-id'});
+    await client.sendMessage('test-queue', {key: 'value'}, {correlationId: 'non-matching-id'});
 
     const mockMsg = {
       content: Buffer.from(JSON.stringify({key: 'value'})),
