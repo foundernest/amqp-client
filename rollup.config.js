@@ -4,19 +4,11 @@ import json from "@rollup/plugin-json";
 
 export default [
     {
-        input: 'dist/esm/index.js',
+        input: 'dist/index.js',
         output: {
-            file: 'dist/esm/index.js',
+            file: 'dist/index.js',
             format: 'esm'
         },
         plugins: [resolve(), commonjs(), json()]
     },
-    {
-        input: 'dist/cjs/index.js',
-        output: {
-            file: 'dist/cjs/index.js',
-            format: 'cjs'
-        },
-        plugins: [resolve(), commonjs(), json()]
-    }
 ];
