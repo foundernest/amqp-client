@@ -1,12 +1,11 @@
 
 # AMQP Client
 
-A TypeScript-based AMQP client that supports both ESM and CommonJS modules. This client is designed to work with RabbitMQ and provides functionalities for connecting to the broker, sending messages, and consuming messages with support for dead-letter queues and reconnection strategies.
+A TypeScript-based AMQP client designed to work with RabbitMQ and provides functionalities for connecting to the broker, sending messages, and consuming messages with support for dead-letter queues and reconnection strategies.
 
 ## Features
 
 -   Written in TypeScript
--   Supports both ESM and CommonJS modules
 -   Handles automatic reconnection with exponential backoff
 -   Supports dead-letter queues
 -   Customizable logging
@@ -20,30 +19,21 @@ To install the package, use npm or yarn:
 
 ## Usage
 
-### Importing the Client
-
-You can import the client using either ESM or CommonJS.
-
-For ESM, use:  
-```
-import { AMQPClient } from 'foundernest-amqp-client';
-```
-
-For CommonJS, use:  
-```
-const { AMQPClient } = require('foundernest-amqp-client');
-```
-
 ### Creating an AMQP Client
 
 Create an instance of  `AMQPClient`  by providing connection options and, optionally, a custom logger:  
+
 Example:  
 ```
+import { AMQPClient } from 'foundernest-amqp-client';
+
+const myLogger = new MyLogger()
 const client = new AMQPClient({ 
   options: { 
     host: 'localhost', 
     username: 'guest', 
-    password: 'guest' 
+    password: 'guest',
+    logger: myLogger,
   } 
 });
 ```
@@ -72,17 +62,15 @@ await client.sendMessage('test-queue', data, {
 To create a listener for a queue, use the  `createListener`  method. This method sets up the necessary queue and binds it to a dead-letter queue if specified. Ensure that the connection is established before starting to consume messages:  
 Example:  
 ```
-const client = new AMQPClient({ 
-  options: { 
-    host: 'localhost', 
-    username: 'guest',
-    password: 'guest',
+const client = new AMQPClient(config);
+await client.createListener('test-queue', async (message) => {
+    checkAuth(message.headers) 
+    processMessage(message.content); 
 });
-await client.createListener('test-queue', async (msg) => { console.log(msg.content); return true; });
 ```
 ### Connecting to the Broker
 
-You don't need to explicitly connect to the broker, each time a listener is created or a message is sent a connection will be created if needed.  
+You don't need to explicitly connect to the broker, each time a listener is created a connection will be created if needed.  
 If the connection to the broker is lost, the client will attempt to reconnect using a exponential backoff strategy.
 
 ### Closing the connection
@@ -109,7 +97,7 @@ You can provide a custom logger that implements the methods  `debug`,  `info`,  
 
 ## Testing
 
-This project uses Jest for testing. To run the tests, use the following command:
+This project uses Vitest for testing. To run the tests, use the following command:
 
 -   `npm test`
 
