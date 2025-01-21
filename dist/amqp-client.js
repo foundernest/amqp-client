@@ -91,25 +91,34 @@ export class AMQPClient {
             this.channel = null;
         }
     }
-    async sendMessage(queueName, message, { headers, persistent = true, deadLetter = true, deliveryMode = 2, correlationId } = {}) {
+    async sendMessage(queueName, message, { headers, correlationId } = {}) {
         await this.ensureConnection();
         if (!this.channel) {
             throw new Error('💥 Channel is not available');
         }
-        await this.assertQueue({ queueName, deadLetter });
-        this.logger.info(`📨 Sending message to queue: ${queueName}`);
-        return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
-            headers,
-            correlationId,
-            persistent,
-            deliveryMode,
-            contentType: 'application/json',
-            expiration: this.options.messageExpiration.queueTTL,
-        });
+        try {
+            this.logger.info(`📨 Sending message to queue: ${queueName}`);
+            return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
+                headers,
+                correlationId,
+                persistent: true,
+                deliveryMode: 2,
+                contentType: 'application/json',
+                expiration: this.options.messageExpiration.queueTTL,
+            });
+        }
+        catch (error) {
+            this.logger.error(`💥 Failed sending message to queue: ${queueName}`, JSON.stringify(error, null, 2));
+        }
+        return false;
     }
     async ensureConnection() {
-        if (!this.connection || !this.channel) {
+        if (!this.connection) {
             await this.connect();
+        }
+        if (this.connection && !this.channel) {
+            this.channel = await this.connection.createChannel();
+            await this.channel.prefetch(1);
         }
     }
     async createListener(queueName, onMessage, options) {
@@ -178,32 +187,20 @@ export class AMQPClient {
             const exchangeName = `${queueName}.dlx`;
             const dlqName = `${queueName}.dlq`;
             const routingKey = `${queueName}.dead`;
-            try {
-                await this.channel.checkExchange(exchangeName);
-                this.logger.info(`🗿 Exchange "${exchangeName}" exists`);
-            }
-            catch (e) {
-                this.logger.info(`🗿 Creating exchange "${exchangeName}"`);
-                await this.channel.assertExchange(exchangeName, 'direct', {
-                    durable: true,
-                    autoDelete: false,
-                });
-            }
-            try {
-                await this.channel.checkQueue(dlqName);
-                this.logger.info(`🗿 Dead letter queue "${dlqName}" exists`);
-            }
-            catch (e) {
-                this.logger.info(`🗿 Creating and binding dead letter queue "${dlqName}"`);
-                await this.channel.assertQueue(dlqName, {
-                    durable: true,
-                    arguments: {
-                        'x-queue-type': 'quorum',
-                        'x-message-ttl': this.options.messageExpiration.deadLetterQueueTTL,
-                    },
-                });
-                await this.channel.bindQueue(dlqName, exchangeName, routingKey);
-            }
+            this.logger.info(`🗿 Asserting exchange "${exchangeName}"`);
+            await this.channel.assertExchange(exchangeName, 'direct', {
+                durable: true,
+                autoDelete: false,
+            });
+            this.logger.info(`🗿 Asserting and binding dead letter queue "${dlqName}"`);
+            await this.channel.assertQueue(dlqName, {
+                durable: true,
+                arguments: {
+                    'x-queue-type': 'quorum',
+                    'x-message-ttl': this.options.messageExpiration.deadLetterQueueTTL,
+                },
+            });
+            await this.channel.bindQueue(dlqName, exchangeName, routingKey);
             queueOptions.deadLetterExchange = exchangeName;
             queueOptions.deadLetterRoutingKey = routingKey;
             queueOptions.arguments = {
@@ -212,15 +209,7 @@ export class AMQPClient {
                 'x-dead-letter-routing-key': routingKey,
             };
         }
-        let queue;
-        try {
-            queue = await this.channel.checkQueue(queueName);
-            this.logger.info(`🗿 Queue "${queueName}" exists`);
-        }
-        catch (e) {
-            this.logger.info(`🗿 Creating queue "${queueName}"`);
-            queue = await this.channel.assertQueue(queueName, queueOptions);
-        }
-        return queue;
+        this.logger.info(`🗿 Asserting queue "${queueName}"`);
+        return this.channel.assertQueue(queueName, queueOptions);
     }
 }

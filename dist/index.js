@@ -1,7 +1,6 @@
-import require$$1$2 from 'querystring';
-import require$$1 from 'tty';
-import require$$1$1 from 'util';
-import require$$0 from 'os';
+import require$$1$1 from 'querystring';
+import require$$0 from 'tty';
+import require$$1 from 'util';
 import require$$0$1 from 'buffer';
 import require$$0$2 from 'assert';
 import require$$3 from 'stream';
@@ -8629,165 +8628,6 @@ function requireBrowser () {
 
 var node = {exports: {}};
 
-var hasFlag;
-var hasRequiredHasFlag;
-
-function requireHasFlag () {
-	if (hasRequiredHasFlag) return hasFlag;
-	hasRequiredHasFlag = 1;
-
-	hasFlag = (flag, argv = process.argv) => {
-		const prefix = flag.startsWith('-') ? '' : (flag.length === 1 ? '-' : '--');
-		const position = argv.indexOf(prefix + flag);
-		const terminatorPosition = argv.indexOf('--');
-		return position !== -1 && (terminatorPosition === -1 || position < terminatorPosition);
-	};
-	return hasFlag;
-}
-
-var supportsColor_1;
-var hasRequiredSupportsColor;
-
-function requireSupportsColor () {
-	if (hasRequiredSupportsColor) return supportsColor_1;
-	hasRequiredSupportsColor = 1;
-	const os = require$$0;
-	const tty = require$$1;
-	const hasFlag = requireHasFlag();
-
-	const {env} = process;
-
-	let forceColor;
-	if (hasFlag('no-color') ||
-		hasFlag('no-colors') ||
-		hasFlag('color=false') ||
-		hasFlag('color=never')) {
-		forceColor = 0;
-	} else if (hasFlag('color') ||
-		hasFlag('colors') ||
-		hasFlag('color=true') ||
-		hasFlag('color=always')) {
-		forceColor = 1;
-	}
-
-	if ('FORCE_COLOR' in env) {
-		if (env.FORCE_COLOR === 'true') {
-			forceColor = 1;
-		} else if (env.FORCE_COLOR === 'false') {
-			forceColor = 0;
-		} else {
-			forceColor = env.FORCE_COLOR.length === 0 ? 1 : Math.min(parseInt(env.FORCE_COLOR, 10), 3);
-		}
-	}
-
-	function translateLevel(level) {
-		if (level === 0) {
-			return false;
-		}
-
-		return {
-			level,
-			hasBasic: true,
-			has256: level >= 2,
-			has16m: level >= 3
-		};
-	}
-
-	function supportsColor(haveStream, streamIsTTY) {
-		if (forceColor === 0) {
-			return 0;
-		}
-
-		if (hasFlag('color=16m') ||
-			hasFlag('color=full') ||
-			hasFlag('color=truecolor')) {
-			return 3;
-		}
-
-		if (hasFlag('color=256')) {
-			return 2;
-		}
-
-		if (haveStream && !streamIsTTY && forceColor === undefined) {
-			return 0;
-		}
-
-		const min = forceColor || 0;
-
-		if (env.TERM === 'dumb') {
-			return min;
-		}
-
-		if (process.platform === 'win32') {
-			// Windows 10 build 10586 is the first Windows release that supports 256 colors.
-			// Windows 10 build 14931 is the first release that supports 16m/TrueColor.
-			const osRelease = os.release().split('.');
-			if (
-				Number(osRelease[0]) >= 10 &&
-				Number(osRelease[2]) >= 10586
-			) {
-				return Number(osRelease[2]) >= 14931 ? 3 : 2;
-			}
-
-			return 1;
-		}
-
-		if ('CI' in env) {
-			if (['TRAVIS', 'CIRCLECI', 'APPVEYOR', 'GITLAB_CI', 'GITHUB_ACTIONS', 'BUILDKITE'].some(sign => sign in env) || env.CI_NAME === 'codeship') {
-				return 1;
-			}
-
-			return min;
-		}
-
-		if ('TEAMCITY_VERSION' in env) {
-			return /^(9\.(0*[1-9]\d*)\.|\d{2,}\.)/.test(env.TEAMCITY_VERSION) ? 1 : 0;
-		}
-
-		if (env.COLORTERM === 'truecolor') {
-			return 3;
-		}
-
-		if ('TERM_PROGRAM' in env) {
-			const version = parseInt((env.TERM_PROGRAM_VERSION || '').split('.')[0], 10);
-
-			switch (env.TERM_PROGRAM) {
-				case 'iTerm.app':
-					return version >= 3 ? 3 : 2;
-				case 'Apple_Terminal':
-					return 2;
-				// No default
-			}
-		}
-
-		if (/-256(color)?$/i.test(env.TERM)) {
-			return 2;
-		}
-
-		if (/^screen|^xterm|^vt100|^vt220|^rxvt|color|ansi|cygwin|linux/i.test(env.TERM)) {
-			return 1;
-		}
-
-		if ('COLORTERM' in env) {
-			return 1;
-		}
-
-		return min;
-	}
-
-	function getSupportLevel(stream) {
-		const level = supportsColor(stream, stream && stream.isTTY);
-		return translateLevel(level);
-	}
-
-	supportsColor_1 = {
-		supportsColor: getSupportLevel,
-		stdout: translateLevel(supportsColor(true, tty.isatty(1))),
-		stderr: translateLevel(supportsColor(true, tty.isatty(2)))
-	};
-	return supportsColor_1;
-}
-
 /**
  * Module dependencies.
  */
@@ -8798,8 +8638,8 @@ function requireNode () {
 	if (hasRequiredNode) return node.exports;
 	hasRequiredNode = 1;
 	(function (module, exports) {
-		const tty = require$$1;
-		const util = require$$1$1;
+		const tty = require$$0;
+		const util = require$$1;
 
 		/**
 		 * This is the Node.js implementation of `debug()`.
@@ -8825,7 +8665,7 @@ function requireNode () {
 		try {
 			// Optional dependency (as in, doesn't need to be installed, NOT like optionalDependencies in package.json)
 			// eslint-disable-next-line import/no-extraneous-dependencies
-			const supportsColor = requireSupportsColor();
+			const supportsColor = require('supports-color');
 
 			if (supportsColor && (supportsColor.stderr || supportsColor).level >= 2) {
 				exports.colors = [
@@ -9482,7 +9322,7 @@ constructor.builder = function(pstr) {
 
 var compile = {};
 
-var $ = require$$1$1.format;
+var $ = require$$1.format;
 
 var parse = parse$2.parse;
 var interp = interp$1,
@@ -10074,7 +9914,7 @@ var heartbeatExports = heartbeat.exports;
 var format$1 = {};
 
 var defs$3 = defs$5;
-var format = require$$1$1.format;
+var format = require$$1.format;
 var HEARTBEAT$1 = frame$1.HEARTBEAT;
 
 format$1.closeMessage = function(close) {
@@ -10234,7 +10074,7 @@ bitset.BitSet = BitSet$1;
 
 var error = {};
 
-var inherits = require$$1$1.inherits;
+var inherits = require$$1.inherits;
 
 function trimStack(stack, num) {
   return stack && stack.split('\n').slice(num).join('\n');
@@ -10274,7 +10114,7 @@ var closeMsg$1 = format$1.closeMessage;
 var inspect$2 = format$1.inspect;
 
 var BitSet = bitset.BitSet;
-var fmt$2 = require$$1$1.format;
+var fmt$2 = require$$1.format;
 var PassThrough = require$$3.PassThrough;
 var IllegalOperationError$1 = error.IllegalOperationError;
 var stackCapture$1 = error.stackCapture;
@@ -11024,9 +10864,9 @@ var require$$5 = {
 };
 
 var URL = urlParse;
-var QS = require$$1$2;
+var QS = require$$1$1;
 var Connection = connection.Connection;
-var fmt$1 = require$$1$1.format;
+var fmt$1 = require$$1.format;
 var credentials = credentials$1;
 
 function copyInto(obj, target) {
@@ -11215,7 +11055,7 @@ var inspect$1 = format$1.inspect;
 var methodName = format$1.methodName;
 var assert = require$$0$2;
 var EventEmitter$1 = require$$0$3;
-var fmt = require$$1$1.format;
+var fmt = require$$1.format;
 var IllegalOperationError = error.IllegalOperationError;
 var stackCapture = error.stackCapture;
 
@@ -12018,7 +11858,7 @@ Args$1.recover = function() {
 var api_args = Object.freeze(Args$1);
 
 const EventEmitter = require$$0$3;
-const promisify$1 = require$$1$1.promisify;
+const promisify$1 = require$$1.promisify;
 const defs = defs$5;
 const {BaseChannel} = channel;
 const {acceptMessage} = channel;
@@ -12320,7 +12160,7 @@ channel_model.ChannelModel = ChannelModel$1;
 
 var raw_connect = connect$2.connect;
 var ChannelModel = channel_model.ChannelModel;
-var promisify = require$$1$1.promisify;
+var promisify = require$$1.promisify;
 
 function connect(url, connOptions) {
   return promisify(function(cb) {
@@ -12424,25 +12264,34 @@ class AMQPClient {
             this.channel = null;
         }
     }
-    async sendMessage(queueName, message, { headers, persistent = true, deadLetter = true, deliveryMode = 2, correlationId } = {}) {
+    async sendMessage(queueName, message, { headers, correlationId } = {}) {
         await this.ensureConnection();
         if (!this.channel) {
             throw new Error('💥 Channel is not available');
         }
-        await this.assertQueue({ queueName, deadLetter });
-        this.logger.info(`📨 Sending message to queue: ${queueName}`);
-        return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
-            headers,
-            correlationId,
-            persistent,
-            deliveryMode,
-            contentType: 'application/json',
-            expiration: this.options.messageExpiration.queueTTL,
-        });
+        try {
+            this.logger.info(`📨 Sending message to queue: ${queueName}`);
+            return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
+                headers,
+                correlationId,
+                persistent: true,
+                deliveryMode: 2,
+                contentType: 'application/json',
+                expiration: this.options.messageExpiration.queueTTL,
+            });
+        }
+        catch (error) {
+            this.logger.error(`💥 Failed sending message to queue: ${queueName}`, JSON.stringify(error, null, 2));
+        }
+        return false;
     }
     async ensureConnection() {
-        if (!this.connection || !this.channel) {
+        if (!this.connection) {
             await this.connect();
+        }
+        if (this.connection && !this.channel) {
+            this.channel = await this.connection.createChannel();
+            await this.channel.prefetch(1);
         }
     }
     async createListener(queueName, onMessage, options) {
@@ -12511,32 +12360,20 @@ class AMQPClient {
             const exchangeName = `${queueName}.dlx`;
             const dlqName = `${queueName}.dlq`;
             const routingKey = `${queueName}.dead`;
-            try {
-                await this.channel.checkExchange(exchangeName);
-                this.logger.info(`🗿 Exchange "${exchangeName}" exists`);
-            }
-            catch (e) {
-                this.logger.info(`🗿 Creating exchange "${exchangeName}"`);
-                await this.channel.assertExchange(exchangeName, 'direct', {
-                    durable: true,
-                    autoDelete: false,
-                });
-            }
-            try {
-                await this.channel.checkQueue(dlqName);
-                this.logger.info(`🗿 Dead letter queue "${dlqName}" exists`);
-            }
-            catch (e) {
-                this.logger.info(`🗿 Creating and binding dead letter queue "${dlqName}"`);
-                await this.channel.assertQueue(dlqName, {
-                    durable: true,
-                    arguments: {
-                        'x-queue-type': 'quorum',
-                        'x-message-ttl': this.options.messageExpiration.deadLetterQueueTTL,
-                    },
-                });
-                await this.channel.bindQueue(dlqName, exchangeName, routingKey);
-            }
+            this.logger.info(`🗿 Asserting exchange "${exchangeName}"`);
+            await this.channel.assertExchange(exchangeName, 'direct', {
+                durable: true,
+                autoDelete: false,
+            });
+            this.logger.info(`🗿 Asserting and binding dead letter queue "${dlqName}"`);
+            await this.channel.assertQueue(dlqName, {
+                durable: true,
+                arguments: {
+                    'x-queue-type': 'quorum',
+                    'x-message-ttl': this.options.messageExpiration.deadLetterQueueTTL,
+                },
+            });
+            await this.channel.bindQueue(dlqName, exchangeName, routingKey);
             queueOptions.deadLetterExchange = exchangeName;
             queueOptions.deadLetterRoutingKey = routingKey;
             queueOptions.arguments = {
@@ -12545,16 +12382,8 @@ class AMQPClient {
                 'x-dead-letter-routing-key': routingKey,
             };
         }
-        let queue;
-        try {
-            queue = await this.channel.checkQueue(queueName);
-            this.logger.info(`🗿 Queue "${queueName}" exists`);
-        }
-        catch (e) {
-            this.logger.info(`🗿 Creating queue "${queueName}"`);
-            queue = await this.channel.assertQueue(queueName, queueOptions);
-        }
-        return queue;
+        this.logger.info(`🗿 Asserting queue "${queueName}"`);
+        return this.channel.assertQueue(queueName, queueOptions);
     }
 }
 

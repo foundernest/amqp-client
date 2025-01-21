@@ -23,9 +23,6 @@ export interface MessagePublishOptions {
     headers?: Record<string, any>;
     /** Unique identifier for message correlation and tracking */
     correlationId?: string;
-    persistent?: boolean;
-    deliveryMode?: number;
-    deadLetter?: boolean;
 }
 /**
  * Configuration options for consuming messages from an AMQP queue.
