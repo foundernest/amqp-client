@@ -63,13 +63,6 @@ export class AMQPClient implements AMQPClientInterface {
         this.logger.warn('⚠️ AMQP Connection Closed')
         this.reconnect()
       })
-
-      this.channel.on('close', () => {
-        this.logger.warn('⚠️ AMQP Channel Closed');
-        this.channel = null;
-
-        this.ensureConnection()
-      });
     } catch (error) {
       this.logger.error('🚨 Failed to connect to AMQP broker:', error)
       await this.reconnect()
