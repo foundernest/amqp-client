@@ -6,10 +6,14 @@ import {
   type ConsumeOptions,
   type MessagePublishOptions,
 } from './amqp-client.types'
-import {AMQPClientInterface} from "./amqp-client.interface";
-import {AMQPClientLoggerInterface} from "./amqp-client-logger.interface";
+import { AMQPClientInterface } from './amqp-client.interface'
+import { AMQPClientLoggerInterface } from './amqp-client-logger.interface'
 
-export type AMQPClientArgs = ConnectionOptions & { logger?: AMQPClientLoggerInterface }
+export type AMQPClientArgs = ConnectionOptions & {
+  logger?: AMQPClientLoggerInterface
+}
+
+type AMQPError = { code: number; message: string }
 
 export class AMQPClient implements AMQPClientInterface {
   private connection: amqp.Connection | null = null
@@ -18,7 +22,7 @@ export class AMQPClient implements AMQPClientInterface {
   private readonly options: ClientOptions
   private readonly logger: AMQPClientLoggerInterface
 
-  constructor({logger = console, ...options}: AMQPClientArgs) {
+  constructor({ logger = console, ...options }: AMQPClientArgs) {
     this.options = {
       ...options,
       // Constants for exponential backoff strategy.
@@ -42,13 +46,13 @@ export class AMQPClient implements AMQPClientInterface {
   }
 
   private async connect(): Promise<void> {
-    const {host, port = 5672, username, password, vhost = '/'} = this.options
+    const { host, port = 5672, username, password, vhost = '/' } = this.options
     const connectionString = `amqp://${username ? `${username}:${password}@` : ''}${host}:${port}/${vhost}`
 
     try {
       this.connection = await amqp.connect(connectionString)
-      this.channel = await this.connection.createChannel();
-      await this.channel.prefetch(1);
+      this.channel = await this.connection.createChannel()
+      await this.channel.prefetch(1)
 
       this.reconnectAttempts = 0
 
@@ -118,10 +122,11 @@ export class AMQPClient implements AMQPClientInterface {
     }
   }
 
-  async sendMessage<T = any>(queueName: string, message: T, {
-    headers,
-    correlationId
-  }: MessagePublishOptions = {}): Promise<boolean> {
+  async sendMessage<T extends object>(
+    queueName: string,
+    message: T,
+    { headers, correlationId }: MessagePublishOptions = {}
+  ): Promise<boolean> {
     await this.ensureConnection()
     if (!this.channel) {
       throw new Error('💥 Channel is not available')
@@ -147,15 +152,15 @@ export class AMQPClient implements AMQPClientInterface {
 
   private async ensureConnection(): Promise<void> {
     if (!this.connection) {
-      await this.connect();
+      await this.connect()
     }
     if (this.connection && !this.channel) {
-      this.channel = await this.connection.createChannel();
-      await this.channel.prefetch(1);
+      this.channel = await this.connection.createChannel()
+      await this.channel.prefetch(1)
     }
   }
 
-  async createListener<T = any>(
+  async createListener<T extends object>(
     queueName: string,
     onMessage: (msg: AMQPMessage<T>) => Promise<boolean | void>,
     options?: ConsumeOptions
@@ -217,9 +222,9 @@ export class AMQPClient implements AMQPClientInterface {
   }
 
   private async assertQueue({
-                              queueName,
-                              deadLetter,
-                            }: {
+    queueName,
+    deadLetter,
+  }: {
     queueName: string
     deadLetter: boolean
   }): Promise<amqp.Replies.AssertQueue> {
@@ -269,7 +274,38 @@ export class AMQPClient implements AMQPClientInterface {
       }
     }
 
-    this.logger.info(`🗿 Asserting queue "${queueName}"`)
-    return this.channel.assertQueue(queueName, queueOptions)
+    try {
+      this.logger.info(`🗿 Asserting queue "${queueName}"`)
+      return this.channel.assertQueue(queueName, queueOptions)
+    } catch (error) {
+      // PRECONDITION_FAILED ERROR | QUEUE EXISTS WITH DIFFERENT CONFIG
+      if (this.isAmqpError(error) && error.code === 406) {
+        this.logger.warn(`⚠️ Queue "${queueName}" exists with different arguments.`)
+
+        try {
+          // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
+          await this.ensureConnection()
+
+          const queue = await this.channel.checkQueue(queueName)
+          if (queue.messageCount === 0) {
+            this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`)
+            await this.channel.deleteQueue(queueName)
+            return await this.channel.assertQueue(queueName, queueOptions)
+          } else {
+            this.logger.warn(`⚠️ Queue "${queueName}" has messages. Proceeding without re-declaring the queue.`)
+            return queue
+          }
+        } catch (checkError) {
+          this.logger.error(`💥 Failed to check queue "${queueName}":`, checkError)
+          throw checkError
+        }
+      } else {
+        throw error
+      }
+    }
+  }
+
+  private isAmqpError(error: unknown): error is AMQPError {
+    return typeof error === 'object' && error !== null && 'code' in error
   }
 }

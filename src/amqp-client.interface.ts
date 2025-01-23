@@ -2,8 +2,8 @@ import { type AMQPMessage, type ConsumeOptions, type MessagePublishOptions } fro
 
 export interface AMQPClientInterface {
   close(): Promise<void>
-  sendMessage<T>(queueName: string, message: T, options?: MessagePublishOptions): Promise<boolean>
-  createListener<T>(
+  sendMessage<T extends object>(queueName: string, message: T, options?: MessagePublishOptions): Promise<boolean>
+  createListener<T extends object>(
     queueName: string,
     onMessage: (msg: AMQPMessage<T>) => Promise<boolean | void>,
     options?: ConsumeOptions
