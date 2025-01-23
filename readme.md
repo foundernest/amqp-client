@@ -1,12 +1,15 @@
-
-# AMQP Client
+# AMQP client
+<a href="https://gitmoji.dev">
+    <img src="https://img.shields.io/badge/gitmoji-%20😜%20😍-FFDD67.svg?style=flat-square"
+         alt="Gitmoji">
+</a>
 
 A TypeScript-based AMQP client designed to work with RabbitMQ and provides functionalities for connecting to the broker, sending messages, and consuming messages with support for dead-letter queues and reconnection strategies.
 
 ## Features
 
 -   Written in TypeScript
--   Handles automatic reconnection with exponential backoff
+-   Handles automatic reconnection using exponential backoff strategy
 -   Supports dead-letter queues
 -   Customizable logging
 
