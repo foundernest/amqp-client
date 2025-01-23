@@ -1,0 +1,16 @@
+{
+  "arrowParens": "always",
+  "embeddedLanguageFormatting": "auto",
+  "endOfLine": "lf",
+  "insertPragma": false,
+  "printWidth": 120,
+  "proseWrap": "always",
+  "quoteProps": "as-needed",
+  "requirePragma": false,
+  "semi": false,
+  "singleAttributePerLine": false,
+  "singleQuote": true,
+  "tabWidth": 2,
+  "trailingComma": "es5",
+  "useTabs": false
+}

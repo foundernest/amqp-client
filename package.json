@@ -15,7 +15,8 @@
     "test": "vitest",
     "build:esm": "tsc --project tsconfig.json",
     "build:types": "tsc --declaration --emitDeclarationOnly",
-    "build": "tsc && npm run build:esm && npm run build:types && rollup -c"
+    "build": "tsc && npm run build:esm && npm run build:types && rollup -c",
+    "format": "prettier --write ."
   },
   "license": "MIT",
   "dependencies": {
@@ -30,9 +31,12 @@
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.3",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
     "rollup": "^3.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.21.0",
     "vitest": "^3.0.3"
   }
 }
