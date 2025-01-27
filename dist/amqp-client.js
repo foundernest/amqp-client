@@ -209,7 +209,39 @@ export class AMQPClient {
                 'x-dead-letter-routing-key': routingKey,
             };
         }
-        this.logger.info(`🗿 Asserting queue "${queueName}"`);
-        return this.channel.assertQueue(queueName, queueOptions);
+        try {
+            this.logger.info(`🗿 Asserting queue "${queueName}"`);
+            return this.channel.assertQueue(queueName, queueOptions);
+        }
+        catch (error) {
+            // PRECONDITION_FAILED ERROR | QUEUE EXISTS WITH DIFFERENT CONFIG
+            if (this.isAmqpError(error) && error.code === 406) {
+                this.logger.warn(`⚠️ Queue "${queueName}" exists with different arguments.`);
+                try {
+                    // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
+                    await this.ensureConnection();
+                    const queue = await this.channel.checkQueue(queueName);
+                    if (queue.messageCount === 0) {
+                        this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`);
+                        await this.channel.deleteQueue(queueName);
+                        return await this.channel.assertQueue(queueName, queueOptions);
+                    }
+                    else {
+                        this.logger.warn(`⚠️ Queue "${queueName}" has messages. Proceeding without re-declaring the queue.`);
+                        return queue;
+                    }
+                }
+                catch (checkError) {
+                    this.logger.error(`💥 Failed to check queue "${queueName}":`, checkError);
+                    throw checkError;
+                }
+            }
+            else {
+                throw error;
+            }
+        }
+    }
+    isAmqpError(error) {
+        return typeof error === 'object' && error !== null && 'code' in error;
     }
 }
