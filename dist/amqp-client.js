@@ -152,7 +152,7 @@ export class AMQPClient {
                 const deathCount = msg.properties.headers?.['x-death']?.[0]?.count || 0;
                 const attempts = deathCount + 1;
                 const result = await onMessage(message);
-                if (result === false) {
+                if (!result) {
                     const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries;
                     this.channel.nack(msg, false, requeue);
                     if (!requeue) {
