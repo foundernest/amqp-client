@@ -12459,11 +12459,11 @@ class AMQPClient {
         if (!this.channel) {
             throw new Error('💥 Channel is not available');
         }
-        this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`);
         await this.assertQueue({
             queueName,
             deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
         });
+        this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`);
         await this.channel.consume(queueName, async (msg) => {
             if (!msg || !this.channel) {
                 return;
@@ -12482,7 +12482,7 @@ class AMQPClient {
                         redelivered: msg.fields.redelivered,
                     },
                 };
-                const deathCount = msg.properties.headers?.['x-delivery-count']?.[0]?.count || 0;
+                const deathCount = msg.properties.headers?.['x-delivery-count'] || 0;
                 const attempts = deathCount + 1;
                 const result = await onMessage(message);
                 if (!result) {
@@ -12494,6 +12494,7 @@ class AMQPClient {
                 }
                 else {
                     this.channel.ack(msg);
+                    this.logger.debug(`✅ Message successfully processed`);
                 }
             }
             catch (error) {
