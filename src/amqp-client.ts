@@ -170,13 +170,12 @@ export class AMQPClient implements AMQPClientInterface {
       throw new Error('💥 Channel is not available')
     }
 
-    this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
-
     await this.assertQueue({
       queueName,
       deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
     })
 
+    this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
     await this.channel.consume(queueName, async (msg) => {
       if (!msg || !this.channel) {
         return
@@ -198,14 +197,13 @@ export class AMQPClient implements AMQPClientInterface {
           },
         }
 
-        const deathCount = msg.properties.headers?.['x-delivery-count']?.[0]?.count || 0
+        const deathCount = msg.properties.headers?.['x-delivery-count'] || 0
         const attempts = deathCount + 1
         const result = await onMessage(message)
 
         if (!result) {
           const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries
           this.channel.nack(msg, false, requeue)
-
           if (!requeue) {
             this.logger.warn(
               `⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
@@ -213,6 +211,7 @@ export class AMQPClient implements AMQPClientInterface {
           }
         } else {
           this.channel.ack(msg)
+          this.logger.debug(`✅ Message successfully processed`)
         }
       } catch (error) {
         this.logger.error('🚨 Message processing error:', error)
