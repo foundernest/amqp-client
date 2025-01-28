@@ -5,7 +5,7 @@ export interface AMQPClientInterface {
   sendMessage<T extends object>(queueName: string, message: T, options?: MessagePublishOptions): Promise<boolean>
   createListener<T extends object>(
     queueName: string,
-    onMessage: (msg: AMQPMessage<T>) => Promise<boolean | void>,
+    onMessage: (msg: AMQPMessage<T>) => Promise<boolean>,
     options?: ConsumeOptions
   ): Promise<void>
 }

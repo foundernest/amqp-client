@@ -162,7 +162,7 @@ export class AMQPClient implements AMQPClientInterface {
 
   async createListener<T extends object>(
     queueName: string,
-    onMessage: (msg: AMQPMessage<T>) => Promise<boolean | void>,
+    onMessage: (msg: AMQPMessage<T>) => Promise<boolean>,
     options?: ConsumeOptions
   ): Promise<void> {
     await this.ensureConnection()
@@ -202,7 +202,7 @@ export class AMQPClient implements AMQPClientInterface {
         const attempts = deathCount + 1
         const result = await onMessage(message)
 
-        if (result === false) {
+        if (!result) {
           const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries
           this.channel.nack(msg, false, requeue)
 
