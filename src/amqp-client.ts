@@ -245,7 +245,7 @@ export class AMQPClient implements AMQPClientInterface {
 
     const channelQueueName = `consumer-${queueName}-${Date.now()}`
     const channel = await this.createConsumerChannel(channelQueueName, 1)
-    const queueOptions: amqp.Options.AssertQueue = {
+    const assertQueueOptions: amqp.Options.AssertQueue = {
       durable: true,
       exclusive: false,
       arguments: {
@@ -254,11 +254,89 @@ export class AMQPClient implements AMQPClientInterface {
       },
     }
 
-    if (deadLetter) {
-      const exchangeName = `${queueName}.dlx`
-      const dlqName = `${queueName}.dlq`
-      const routingKey = `${queueName}.dead`
+    const exchangeName = `${queueName}.dlx`
+    const dlqName = `${queueName}.dlq`
+    const routingKey = `${queueName}.dead`
 
+    if (deadLetter) {
+      assertQueueOptions.deadLetterExchange = exchangeName
+      assertQueueOptions.deadLetterRoutingKey = routingKey
+      assertQueueOptions.arguments = {
+        ...assertQueueOptions.arguments,
+        'x-dead-letter-exchange': exchangeName,
+        'x-dead-letter-routing-key': routingKey,
+      }
+    }
+
+    try {
+      this.logger.debug(`🗿 Asserting queue "${queueName}"`)
+      await this.bindQueueToChannel({
+        channel,
+        queueName,
+        assertQueueOptions,
+        deadLetter,
+        exchangeName,
+        dlqName,
+        routingKey,
+      })
+
+      return channel
+    } catch (error) {
+      // PRECONDITION_FAILED ERROR | QUEUE EXISTS WITH DIFFERENT CONFIG
+      if (this.isAmqpError(error) && error.code === 406) {
+        this.logger.warn(`⚠️ Queue "${queueName}" exists with different arguments.`)
+
+        try {
+          // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
+          const channel = await this.createConsumerChannel(channelQueueName, 1)
+          const queue = await channel.checkQueue(queueName)
+          if (queue.messageCount === 0) {
+            this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`)
+            await channel.deleteQueue(queueName)
+
+            await this.bindQueueToChannel({
+              channel,
+              queueName,
+              assertQueueOptions,
+              deadLetter,
+              exchangeName,
+              dlqName,
+              routingKey,
+            })
+            return channel
+          } else {
+            this.logger.warn(`⚠️ Queue "${queueName}" has messages. Proceeding without re-declaring the queue.`)
+            return channel
+          }
+        } catch (checkError) {
+          this.logger.error(`💥 Failed recreating queue "${queueName}":`, checkError)
+          throw checkError
+        }
+      } else {
+        throw error
+      }
+    }
+  }
+
+  private async bindQueueToChannel({
+    channel,
+    queueName,
+    assertQueueOptions,
+    deadLetter,
+    exchangeName,
+    dlqName,
+    routingKey,
+  }: {
+    channel: amqp.Channel
+    queueName: string
+    assertQueueOptions: amqp.Options.AssertQueue
+    deadLetter: boolean
+    exchangeName: string
+    dlqName: string
+    routingKey: string
+  }) {
+    await channel.assertQueue(queueName, assertQueueOptions)
+    if (deadLetter) {
       this.logger.debug(`🗿 Asserting exchange "${exchangeName}"`)
       await channel.assertExchange(exchangeName, 'direct', {
         durable: true,
@@ -274,45 +352,6 @@ export class AMQPClient implements AMQPClientInterface {
         },
       })
       await channel.bindQueue(dlqName, exchangeName, routingKey)
-
-      queueOptions.deadLetterExchange = exchangeName
-      queueOptions.deadLetterRoutingKey = routingKey
-      queueOptions.arguments = {
-        ...queueOptions.arguments,
-        'x-dead-letter-exchange': exchangeName,
-        'x-dead-letter-routing-key': routingKey,
-      }
-    }
-
-    try {
-      this.logger.debug(`🗿 Asserting queue "${queueName}"`)
-      await channel.assertQueue(queueName, queueOptions)
-      return channel
-    } catch (error) {
-      // PRECONDITION_FAILED ERROR | QUEUE EXISTS WITH DIFFERENT CONFIG
-      if (this.isAmqpError(error) && error.code === 406) {
-        this.logger.warn(`⚠️ Queue "${queueName}" exists with different arguments.`)
-
-        try {
-          // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-          const channel = await this.createConsumerChannel(channelQueueName, 1)
-          const queue = await channel.checkQueue(queueName)
-          if (queue.messageCount === 0) {
-            this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`)
-            await channel.deleteQueue(queueName)
-            await channel.assertQueue(queueName, queueOptions)
-            return channel
-          } else {
-            this.logger.warn(`⚠️ Queue "${queueName}" has messages. Proceeding without re-declaring the queue.`)
-            return channel
-          }
-        } catch (checkError) {
-          this.logger.error(`💥 Failed to check queue "${queueName}":`, checkError)
-          throw checkError
-        }
-      } else {
-        throw error
-      }
     }
   }
 
