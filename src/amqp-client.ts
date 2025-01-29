@@ -1,4 +1,6 @@
 import * as amqp from 'amqplib'
+import { type AMQPClientLoggerInterface } from './amqp-client-logger.interface'
+import { type AMQPClientInterface } from './amqp-client.interface'
 import {
   type AMQPMessage,
   type ClientOptions,
@@ -6,8 +8,6 @@ import {
   type ConsumeOptions,
   type MessagePublishOptions,
 } from './amqp-client.types'
-import { AMQPClientInterface } from './amqp-client.interface'
-import { AMQPClientLoggerInterface } from './amqp-client-logger.interface'
 
 export type AMQPClientArgs = ConnectionOptions & {
   logger?: AMQPClientLoggerInterface
@@ -17,7 +17,8 @@ type AMQPError = { code: number; message: string }
 
 export class AMQPClient implements AMQPClientInterface {
   private connection: amqp.Connection | null = null
-  private channel: amqp.Channel | null = null
+  private producer: amqp.Channel | null = null
+  private consumers: Map<string, amqp.Channel> = new Map<string, amqp.Channel>()
   private reconnectAttempts = 0
   private readonly options: ClientOptions
   private readonly logger: AMQPClientLoggerInterface
@@ -51,8 +52,6 @@ export class AMQPClient implements AMQPClientInterface {
 
     try {
       this.connection = await amqp.connect(connectionString)
-      this.channel = await this.connection.createChannel()
-      await this.channel.prefetch(1)
 
       this.reconnectAttempts = 0
 
@@ -107,9 +106,24 @@ export class AMQPClient implements AMQPClientInterface {
 
   async close(): Promise<void> {
     try {
-      if (this.channel) {
-        await this.channel.close()
+      if (this.producer) {
+        await this.producer.close()
+        this.producer = null
       }
+      this.logger.info('📪️ AMQP producer channel closed.')
+    } catch (error) {
+      this.logger.error('🚨 Error closing AMQP producer channel:', error)
+    }
+    try {
+      if (this.consumers.size) {
+        await Promise.all(Array.from(this.consumers.values()).map(async (channel) => channel.close()))
+      }
+      this.logger.info('📪️ AMQP consumer channels closed.')
+    } catch (error) {
+      this.logger.error('🚨 Error closing AMQP consumer channels:', error)
+    }
+
+    try {
       if (this.connection) {
         await this.connection.close()
       }
@@ -118,7 +132,6 @@ export class AMQPClient implements AMQPClientInterface {
       this.logger.error('🚨 Error closing AMQP connection:', error)
     } finally {
       this.connection = null
-      this.channel = null
     }
   }
 
@@ -127,15 +140,13 @@ export class AMQPClient implements AMQPClientInterface {
     message: T,
     { headers, correlationId }: MessagePublishOptions = {}
   ): Promise<boolean> {
-    await this.ensureConnection()
-    if (!this.channel) {
-      throw new Error('💥 Channel is not available')
-    }
-
     try {
+      if (!this.producer) {
+        this.producer = await this.getProducerChannel()
+      }
       this.logger.info(`📨 Sending message to queue: ${queueName}`)
 
-      return this.channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
+      return this.producer.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
         headers,
         correlationId,
         persistent: true,
@@ -150,39 +161,24 @@ export class AMQPClient implements AMQPClientInterface {
     return false
   }
 
-  private async ensureConnection(): Promise<void> {
-    if (!this.connection) {
-      await this.connect()
-    }
-    if (this.connection && !this.channel) {
-      this.channel = await this.connection.createChannel()
-      await this.channel.prefetch(1)
-    }
-  }
-
   async createListener<T extends object>(
     queueName: string,
     onMessage: (msg: AMQPMessage<T>) => Promise<boolean>,
     options?: ConsumeOptions
   ): Promise<void> {
-    await this.ensureConnection()
-    if (!this.channel) {
-      throw new Error('💥 Channel is not available')
-    }
-
-    await this.assertQueue({
+    const channel = await this.getConsumerChannel({
       queueName,
       deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
     })
 
     this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
-    await this.channel.consume(queueName, async (msg) => {
-      if (!msg || !this.channel) {
+    await channel.consume(queueName, async (msg) => {
+      if (!msg) {
         return
       }
 
       if (options?.correlationId && options.correlationId !== msg.properties.correlationId) {
-        this.channel.nack(msg, false, true)
+        channel.nack(msg, false, true)
         return
       }
 
@@ -203,37 +199,52 @@ export class AMQPClient implements AMQPClientInterface {
 
         if (!result) {
           const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries
-          this.channel.nack(msg, false, requeue)
+          channel.nack(msg, false, requeue)
           if (!requeue) {
             this.logger.warn(
               `⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
             )
           }
         } else {
-          this.channel.ack(msg)
+          channel.ack(msg)
           this.logger.debug(`✅ Message successfully processed`)
         }
       } catch (error) {
         this.logger.error('🚨 Message processing error:', error)
-        this.channel.nack(msg, false, false)
+        channel.nack(msg, false, false)
       }
     })
   }
 
-  private async assertQueue({
-    queueName,
-    deadLetter,
-  }: {
-    queueName: string
-    deadLetter: boolean
-  }): Promise<amqp.Replies.AssertQueue> {
-    this.logger.info(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`)
-    await this.ensureConnection()
-
-    if (!this.channel) {
-      throw new Error('💥 Channel is not available')
+  private async getProducerChannel(): Promise<amqp.Channel> {
+    this.logger.debug(`🗿 Creating new producer Channel`)
+    if (!this.connection) {
+      await this.connect()
     }
 
+    let producer
+    if (this.connection) {
+      producer = await this.connection.createChannel()
+      producer.on('error', (err: Error) => {
+        this.logger.error('🚨 AMQP Channel Error:', err)
+        this.producer = null
+      })
+      producer.on('close', () => {
+        this.logger.warn('⚠️ AMQP Channel Closed')
+        this.producer = null
+      })
+    }
+    if (!producer) {
+      throw new Error('💥 Channel is not available')
+    }
+    return producer
+  }
+
+  private async getConsumerChannel({ queueName, deadLetter }: { queueName: string; deadLetter: boolean }) {
+    this.logger.debug(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`)
+
+    const channelQueueName = `consumer-${queueName}-${Date.now()}`
+    const channel = await this.createConsumerChannel(channelQueueName, 1)
     const queueOptions: amqp.Options.AssertQueue = {
       durable: true,
       exclusive: false,
@@ -248,21 +259,21 @@ export class AMQPClient implements AMQPClientInterface {
       const dlqName = `${queueName}.dlq`
       const routingKey = `${queueName}.dead`
 
-      this.logger.info(`🗿 Asserting exchange "${exchangeName}"`)
-      await this.channel.assertExchange(exchangeName, 'direct', {
+      this.logger.debug(`🗿 Asserting exchange "${exchangeName}"`)
+      await channel.assertExchange(exchangeName, 'direct', {
         durable: true,
         autoDelete: false,
       })
 
-      this.logger.info(`🗿 Asserting and binding dead letter queue "${dlqName}"`)
-      await this.channel.assertQueue(dlqName, {
+      this.logger.debug(`🗿 Asserting and binding dead letter queue "${dlqName}"`)
+      await channel.assertQueue(dlqName, {
         durable: true,
         arguments: {
           'x-queue-type': 'quorum',
           'x-message-ttl': this.options.messageExpiration.deadLetterQueueTTL,
         },
       })
-      await this.channel.bindQueue(dlqName, exchangeName, routingKey)
+      await channel.bindQueue(dlqName, exchangeName, routingKey)
 
       queueOptions.deadLetterExchange = exchangeName
       queueOptions.deadLetterRoutingKey = routingKey
@@ -274,8 +285,9 @@ export class AMQPClient implements AMQPClientInterface {
     }
 
     try {
-      this.logger.info(`🗿 Asserting queue "${queueName}"`)
-      return this.channel.assertQueue(queueName, queueOptions)
+      this.logger.debug(`🗿 Asserting queue "${queueName}"`)
+      await channel.assertQueue(queueName, queueOptions)
+      return channel
     } catch (error) {
       // PRECONDITION_FAILED ERROR | QUEUE EXISTS WITH DIFFERENT CONFIG
       if (this.isAmqpError(error) && error.code === 406) {
@@ -283,16 +295,16 @@ export class AMQPClient implements AMQPClientInterface {
 
         try {
           // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-          await this.ensureConnection()
-
-          const queue = await this.channel.checkQueue(queueName)
+          const channel = await this.createConsumerChannel(channelQueueName, 1)
+          const queue = await channel.checkQueue(queueName)
           if (queue.messageCount === 0) {
             this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`)
-            await this.channel.deleteQueue(queueName)
-            return await this.channel.assertQueue(queueName, queueOptions)
+            await channel.deleteQueue(queueName)
+            await channel.assertQueue(queueName, queueOptions)
+            return channel
           } else {
             this.logger.warn(`⚠️ Queue "${queueName}" has messages. Proceeding without re-declaring the queue.`)
-            return queue
+            return channel
           }
         } catch (checkError) {
           this.logger.error(`💥 Failed to check queue "${queueName}":`, checkError)
@@ -302,6 +314,35 @@ export class AMQPClient implements AMQPClientInterface {
         throw error
       }
     }
+  }
+
+  private async createConsumerChannel(queueName: string, prefetch?: number): Promise<amqp.Channel> {
+    this.logger.debug(`🗿 Creating new consumer Channel for "${queueName}"`)
+    if (!this.connection) {
+      await this.connect()
+    }
+
+    let channel
+    if (this.connection) {
+      channel = await this.connection.createChannel()
+      if (prefetch) {
+        await channel.prefetch(prefetch)
+      }
+      channel.on('error', (err: Error) => {
+        this.logger.error('🚨 AMQP Channel Error:', err)
+        this.consumers.delete(queueName)
+      })
+      channel.on('close', () => {
+        this.logger.warn('⚠️ AMQP Channel Closed')
+        this.consumers.delete(queueName)
+      })
+      this.consumers.set(queueName, channel)
+    }
+    if (!channel) {
+      throw new Error('💥 Channel is not available')
+    }
+
+    return channel
   }
 
   private isAmqpError(error: unknown): error is AMQPError {
