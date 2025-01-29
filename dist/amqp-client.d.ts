@@ -20,6 +20,7 @@ export declare class AMQPClient implements AMQPClientInterface {
     createListener<T extends object>(queueName: string, onMessage: (msg: AMQPMessage<T>) => Promise<boolean>, options?: ConsumeOptions): Promise<void>;
     private getProducerChannel;
     private getConsumerChannel;
+    private bindQueueToChannel;
     private createConsumerChannel;
     private isAmqpError;
 }
