@@ -16,7 +16,7 @@ export type AMQPClientArgs = ConnectionOptions & {
 type AMQPError = { code: number; message: string }
 
 export class AMQPClient implements AMQPClientInterface {
-  private connection: amqp.Connection | null = null
+  private connection: amqp.ChannelModel | null = null
   private producer: amqp.Channel | null = null
   private consumers: Map<string, amqp.Channel> = new Map<string, amqp.Channel>()
   private reconnectAttempts = 0
