@@ -13,7 +13,7 @@ export class AMQPClient {
                 // Retry in 1, 2, 4, 8, 16 seconds
                 initialDelay: 1000,
                 maxDelay: 32000,
-                maxAttempts: 5,
+                maxAttempts: 50,
             },
             // This config must remain constant between all the services using the queue, that's why is constant.
             messageExpiration: {
