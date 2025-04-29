@@ -144,7 +144,7 @@ export class AMQPClient implements AMQPClientInterface {
       if (!this.producer) {
         this.producer = await this.getProducerChannel()
       }
-      this.logger.info(`📨 Sending message to queue: ${queueName}`)
+      this.logger.debug(`📨 Sending message to queue: ${queueName}`)
 
       return this.producer.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
         headers,
