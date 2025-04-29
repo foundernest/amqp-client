@@ -24,12 +24,19 @@ export class AMQPClient implements AMQPClientInterface {
   private readonly logger: AMQPClientLoggerInterface
 
   constructor({ logger = console, ...options }: AMQPClientArgs) {
-    this.options = {
-      ...options,
+    // Define default options
+    const defaultOptions = {
       reconnection: {
         initialDelay: 1000,
         maxDelay: 32000,
-        maxAttempts: 5,
+        maxAttempts: 50,
+      },
+    }
+    this.options = {
+      ...options,
+      reconnection: {
+        ...defaultOptions.reconnection,
+        ...(options.reconnection ?? {}),
       },
       // This config must remain constant between all the services using the queue, that's why is constant.
       messageExpiration: {

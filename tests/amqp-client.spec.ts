@@ -245,7 +245,13 @@ describe('AMQPClient', () => {
 
     it('should attempt the specified number of reconnection attempts', async () => {
       connectMock.mockRejectedValue(new Error('Connection failed'))
-      const client = generateClient()
+      const client = generateClient({
+        reconnection: {
+          initialDelay: 1,
+          maxDelay: 10,
+          maxAttempts: 5,
+        },
+      })
 
       await client.sendMessage('test-queue', { key: 'value' })
 
