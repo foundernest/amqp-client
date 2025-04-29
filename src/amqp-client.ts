@@ -26,13 +26,10 @@ export class AMQPClient implements AMQPClientInterface {
   constructor({ logger = console, ...options }: AMQPClientArgs) {
     this.options = {
       ...options,
-      // Constants for exponential backoff strategy.
       reconnection: {
-        // 5 retries in 32 seconds max
-        // Retry in 1, 2, 4, 8, 16 seconds
         initialDelay: 1000,
         maxDelay: 32000,
-        maxAttempts: 50,
+        maxAttempts: 5,
       },
       // This config must remain constant between all the services using the queue, that's why is constant.
       messageExpiration: {
