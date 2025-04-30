@@ -51,7 +51,7 @@ export interface ConnectionOptions {
   /** The virtual host to connect to (default: '/') */
   vhost?: string
   /** Configuration for connection retry behavior */
-  reconnection: {
+  reconnection?: {
     /** Initial delay in milliseconds before the first reconnection attempt */
     initialDelay: number
     /** Maximum number of reconnection attempts before giving up */

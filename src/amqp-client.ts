@@ -50,12 +50,17 @@ export class AMQPClient implements AMQPClientInterface {
     this.logger = logger
   }
 
-  private async connect(): Promise<void> {
+  private async connect(connectionName?: string, applicationName?: string): Promise<void> {
     const { host, port = 5672, username, password, vhost = '/' } = this.options
     const connectionString = `amqp://${username ? `${username}:${password}@` : ''}${host}:${port}/${vhost}`
 
     try {
-      this.connection = await amqp.connect(connectionString)
+      this.connection = await amqp.connect(connectionString, {
+        clientProperties: {
+          connection_name: connectionName,
+          application: applicationName,
+        },
+      })
 
       this.reconnectAttempts = 0
 
@@ -63,20 +68,20 @@ export class AMQPClient implements AMQPClientInterface {
 
       this.connection.on('error', (err: Error): void => {
         this.logger.error('🚨 AMQP Connection Error:', err)
-        this.reconnect()
+        this.reconnect(connectionName)
       })
 
       this.connection.on('close', (): void => {
         this.logger.warn('⚠️ AMQP Connection Closed')
-        this.reconnect()
+        this.reconnect(connectionName)
       })
     } catch (error) {
       this.logger.error('🚨 Failed to connect to AMQP broker:', error)
-      await this.reconnect()
+      await this.reconnect(connectionName)
     }
   }
 
-  private async reconnect(): Promise<void> {
+  private async reconnect(queueName?: string): Promise<void> {
     if (this.reconnectAttempts >= this.options.reconnection.maxAttempts) {
       this.logger.error('🚨 Max reconnection attempts reached. Giving up.')
       return
@@ -90,7 +95,7 @@ export class AMQPClient implements AMQPClientInterface {
     return new Promise((resolve) => {
       setTimeout(async () => {
         try {
-          await this.connect()
+          await this.connect(queueName)
           resolve()
         } catch (err) {
           this.logger.error('🚨 Reconnection failed:', err)
@@ -146,7 +151,7 @@ export class AMQPClient implements AMQPClientInterface {
   ): Promise<boolean> {
     try {
       if (!this.producer) {
-        this.producer = await this.getProducerChannel()
+        this.producer = await this.getProducerChannel(queueName)
       }
       this.logger.debug(`📨 Sending message to queue: ${queueName}`)
 
@@ -220,10 +225,10 @@ export class AMQPClient implements AMQPClientInterface {
     })
   }
 
-  private async getProducerChannel(): Promise<amqp.Channel> {
+  private async getProducerChannel(queueName?: string): Promise<amqp.Channel> {
     this.logger.debug(`🗿 Creating new producer Channel`)
     if (!this.connection) {
-      await this.connect()
+      await this.connect(queueName)
     }
 
     let producer
@@ -362,7 +367,7 @@ export class AMQPClient implements AMQPClientInterface {
   private async createConsumerChannel(queueName: string, prefetch?: number): Promise<amqp.Channel> {
     this.logger.debug(`🗿 Creating new consumer Channel for "${queueName}"`)
     if (!this.connection) {
-      await this.connect()
+      await this.connect(queueName)
     }
 
     let channel
