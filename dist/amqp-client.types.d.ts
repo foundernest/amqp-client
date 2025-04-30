@@ -34,7 +34,7 @@ export interface ConsumeOptions {
     correlationId?: string;
 }
 /**
- * Configuration options for establishing a connection to an AMQP broker.
+ * Param Configuration options for establishing a connection to an AMQP broker.
  */
 export interface ConnectionOptions {
     /** The hostname or IP address of the AMQP broker */
@@ -47,11 +47,30 @@ export interface ConnectionOptions {
     password: string;
     /** The virtual host to connect to (default: '/') */
     vhost?: string;
+    /** Configuration for connection retry behavior */
+    reconnection?: {
+        /** Initial delay in milliseconds before the first reconnection attempt */
+        initialDelay: number;
+        /** Maximum number of reconnection attempts before giving up */
+        maxAttempts: number;
+        /** Maximum delay in milliseconds between reconnection attempts */
+        maxDelay: number;
+    };
 }
 /**
- * Constants used for AMQP connection and message handling configuration.
+ * Client Configuration options for establishing a connection to an AMQP broker.
  */
-export type ConnectionConstants = {
+export interface ClientConnectionOptions {
+    /** The hostname or IP address of the AMQP broker */
+    host: string;
+    /** The port number the AMQP broker is listening on (default: 5672) */
+    port?: number;
+    /** Username for authentication with the AMQP broker */
+    username: string;
+    /** Password for authentication with the AMQP broker */
+    password: string;
+    /** The virtual host to connect to (default: '/') */
+    vhost?: string;
     /** Configuration for connection retry behavior */
     reconnection: {
         /** Initial delay in milliseconds before the first reconnection attempt */
@@ -61,6 +80,11 @@ export type ConnectionConstants = {
         /** Maximum delay in milliseconds between reconnection attempts */
         maxDelay: number;
     };
+}
+/**
+ * Constants used for AMQP connection and message handling configuration.
+ */
+export type ConnectionConstants = {
     /** Message handling configuration */
     messageExpiration: {
         /** Time-to-live in milliseconds for messages in the main queue */
@@ -71,4 +95,4 @@ export type ConnectionConstants = {
         defaultMaxRetries: number;
     };
 };
-export type ClientOptions = ConnectionOptions & ConnectionConstants;
+export type ClientOptions = ClientConnectionOptions & ConnectionConstants;

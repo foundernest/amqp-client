@@ -9186,15 +9186,19 @@ class AMQPClient {
         this.producer = null;
         this.consumers = new Map();
         this.reconnectAttempts = 0;
-        this.options = {
-            ...options,
-            // Constants for exponential backoff strategy.
+        // Define default options
+        const defaultOptions = {
             reconnection: {
-                // 5 retries in 32 seconds max
-                // Retry in 1, 2, 4, 8, 16 seconds
                 initialDelay: 1000,
                 maxDelay: 32000,
                 maxAttempts: 50,
+            },
+        };
+        this.options = {
+            ...options,
+            reconnection: {
+                ...defaultOptions.reconnection,
+                ...(options.reconnection ?? {}),
             },
             // This config must remain constant between all the services using the queue, that's why is constant.
             messageExpiration: {
@@ -9207,28 +9211,33 @@ class AMQPClient {
         };
         this.logger = logger;
     }
-    async connect() {
+    async connect(connectionName, applicationName) {
         const { host, port = 5672, username, password, vhost = '/' } = this.options;
         const connectionString = `amqp://${username ? `${username}:${password}@` : ''}${host}:${port}/${vhost}`;
         try {
-            this.connection = await connect_1(connectionString);
+            this.connection = await connect_1(connectionString, {
+                clientProperties: {
+                    connection_name: connectionName,
+                    application: applicationName,
+                },
+            });
             this.reconnectAttempts = 0;
             this.logger.info('📭️ Connected to AMQP broker.');
             this.connection.on('error', (err) => {
                 this.logger.error('🚨 AMQP Connection Error:', err);
-                this.reconnect();
+                this.reconnect(connectionName);
             });
             this.connection.on('close', () => {
                 this.logger.warn('⚠️ AMQP Connection Closed');
-                this.reconnect();
+                this.reconnect(connectionName);
             });
         }
         catch (error) {
             this.logger.error('🚨 Failed to connect to AMQP broker:', error);
-            await this.reconnect();
+            await this.reconnect(connectionName);
         }
     }
-    async reconnect() {
+    async reconnect(queueName) {
         if (this.reconnectAttempts >= this.options.reconnection.maxAttempts) {
             this.logger.error('🚨 Max reconnection attempts reached. Giving up.');
             return;
@@ -9239,7 +9248,7 @@ class AMQPClient {
         return new Promise((resolve) => {
             setTimeout(async () => {
                 try {
-                    await this.connect();
+                    await this.connect(queueName);
                     resolve();
                 }
                 catch (err) {
@@ -9289,7 +9298,7 @@ class AMQPClient {
     async sendMessage(queueName, message, { headers, correlationId } = {}) {
         try {
             if (!this.producer) {
-                this.producer = await this.getProducerChannel();
+                this.producer = await this.getProducerChannel(queueName);
             }
             this.logger.debug(`📨 Sending message to queue: ${queueName}`);
             return this.producer.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
@@ -9351,10 +9360,10 @@ class AMQPClient {
             }
         });
     }
-    async getProducerChannel() {
+    async getProducerChannel(queueName) {
         this.logger.debug(`🗿 Creating new producer Channel`);
         if (!this.connection) {
-            await this.connect();
+            await this.connect(queueName);
         }
         let producer;
         if (this.connection) {
@@ -9469,7 +9478,7 @@ class AMQPClient {
     async createConsumerChannel(queueName, prefetch) {
         this.logger.debug(`🗿 Creating new consumer Channel for "${queueName}"`);
         if (!this.connection) {
-            await this.connect();
+            await this.connect(queueName);
         }
         let channel;
         if (this.connection) {

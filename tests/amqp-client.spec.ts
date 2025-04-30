@@ -69,7 +69,12 @@ describe('AMQPClient', () => {
     })
 
     it('should create a connection with correct parameters', () => {
-      expect(connectMock).toHaveBeenCalledWith('amqp://guest:guest@localhost:1234/test')
+      expect(connectMock).toHaveBeenCalledWith('amqp://guest:guest@localhost:1234/test', {
+        clientProperties: {
+          application: undefined,
+          connection_name: 'test-queue',
+        },
+      })
     })
 
     it('should create a producer channel', () => {
