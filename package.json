@@ -1,6 +1,6 @@
 {
   "name": "foundernest-amqp-client",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "AMQP Client",
   "author": "FounderNest",
   "default": "./dist/index.js",
@@ -20,7 +20,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "amqplib": "^0.10.5"
+    "amqplib": "^0.10.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

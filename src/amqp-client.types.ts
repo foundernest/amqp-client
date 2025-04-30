@@ -50,12 +50,6 @@ export interface ConnectionOptions {
   password: string
   /** The virtual host to connect to (default: '/') */
   vhost?: string
-}
-
-/**
- * Constants used for AMQP connection and message handling configuration.
- */
-export type ConnectionConstants = {
   /** Configuration for connection retry behavior */
   reconnection: {
     /** Initial delay in milliseconds before the first reconnection attempt */
@@ -65,6 +59,12 @@ export type ConnectionConstants = {
     /** Maximum delay in milliseconds between reconnection attempts */
     maxDelay: number
   }
+}
+
+/**
+ * Constants used for AMQP connection and message handling configuration.
+ */
+export type ConnectionConstants = {
   /** Message handling configuration */
   messageExpiration: {
     /** Time-to-live in milliseconds for messages in the main queue */

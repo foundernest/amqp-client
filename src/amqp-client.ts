@@ -24,15 +24,19 @@ export class AMQPClient implements AMQPClientInterface {
   private readonly logger: AMQPClientLoggerInterface
 
   constructor({ logger = console, ...options }: AMQPClientArgs) {
-    this.options = {
-      ...options,
-      // Constants for exponential backoff strategy.
+    // Define default options
+    const defaultOptions = {
       reconnection: {
-        // 5 retries in 32 seconds max
-        // Retry in 1, 2, 4, 8, 16 seconds
         initialDelay: 1000,
         maxDelay: 32000,
         maxAttempts: 50,
+      },
+    }
+    this.options = {
+      ...options,
+      reconnection: {
+        ...defaultOptions.reconnection,
+        ...(options.reconnection ?? {}),
       },
       // This config must remain constant between all the services using the queue, that's why is constant.
       messageExpiration: {
@@ -144,7 +148,7 @@ export class AMQPClient implements AMQPClientInterface {
       if (!this.producer) {
         this.producer = await this.getProducerChannel()
       }
-      this.logger.info(`📨 Sending message to queue: ${queueName}`)
+      this.logger.debug(`📨 Sending message to queue: ${queueName}`)
 
       return this.producer.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
         headers,
