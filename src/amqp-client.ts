@@ -181,48 +181,58 @@ export class AMQPClient implements AMQPClientInterface {
     })
 
     this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
+
     await channel.consume(queueName, async (msg) => {
-      if (!msg) {
-        return
-      }
-
-      if (options?.correlationId && options.correlationId !== msg.properties.correlationId) {
-        channel.nack(msg, false, true)
-        return
-      }
-
-      try {
-        const content: T = JSON.parse(msg.content.toString())
-        const message: AMQPMessage<T> = {
-          content,
-          metadata: {
-            headers: msg.properties.headers,
-            correlationId: msg.properties.correlationId,
-            redelivered: msg.fields.redelivered,
-          },
-        }
-
-        const deathCount = msg.properties.headers?.['x-delivery-count'] || 0
-        const attempts = deathCount + 1
-        const result = await onMessage(message)
-
-        if (!result) {
-          const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries
-          channel.nack(msg, false, requeue)
-          if (!requeue) {
-            this.logger.warn(
-              `⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
-            )
-          }
-        } else {
-          channel.ack(msg)
-          this.logger.debug(`✅ Message successfully processed`)
-        }
-      } catch (error) {
-        this.logger.error('🚨 Message processing error:', error)
-        channel.nack(msg, false, false)
-      }
+      await this.processSingleMessage(msg, channel, onMessage, options)
     })
+  }
+
+  async processSingleMessage<T>(
+    msg: amqp.ConsumeMessage | null,
+    channel: amqp.Channel,
+    onMessage: (message: AMQPMessage<T>) => Promise<boolean>,
+    options?: ConsumeOptions
+  ): Promise<void> {
+    if (!msg) {
+      return
+    }
+
+    if (options?.correlationId && options.correlationId !== msg.properties.correlationId) {
+      channel.nack(msg, false, true)
+      return
+    }
+
+    try {
+      const content: T = JSON.parse(msg.content.toString())
+      const message: AMQPMessage<T> = {
+        content,
+        metadata: {
+          headers: msg.properties.headers,
+          correlationId: msg.properties.correlationId,
+          redelivered: msg.fields.redelivered,
+        },
+      }
+
+      const deathCount = msg.properties.headers?.['x-delivery-count'] || 0
+      const attempts = deathCount + 1
+      const result = await onMessage(message)
+
+      if (!result) {
+        const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries
+        channel.nack(msg, false, requeue)
+        if (!requeue) {
+          this.logger.warn(
+            `⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
+          )
+        }
+      } else {
+        channel.ack(msg)
+        this.logger.debug(`✅ Message successfully processed`)
+      }
+    } catch (error) {
+      this.logger.error('🚨 Message processing error:', error)
+      channel.nack(msg, false, false)
+    }
   }
 
   private async getProducerChannel(queueName?: string): Promise<amqp.Channel> {
