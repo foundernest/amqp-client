@@ -7820,7 +7820,7 @@ credentials$1.external = function() {
 var name = "amqplib";
 var homepage = "http://amqp-node.github.io/amqplib/";
 var main = "./channel_api.js";
-var version = "0.10.7";
+var version = "0.10.8";
 var description = "An AMQP 0-9-1 (e.g., RabbitMQ) library and client.";
 var repository = {
 	type: "git",
@@ -9180,6 +9180,7 @@ function connect(url, connOptions) {
 }
 var connect_1 = connect;
 
+const DEFUALT_BATCH_TIMEOUT = 2000;
 class AMQPClient {
     constructor({ logger = console, ...options }) {
         this.connection = null;
@@ -9319,46 +9320,99 @@ class AMQPClient {
         const channel = await this.getConsumerChannel({
             queueName,
             deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
+            prefetch: options?.batchSize ?? 1,
         });
-        this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`);
-        await channel.consume(queueName, async (msg) => {
-            if (!msg) {
-                return;
-            }
-            if (options?.correlationId && options.correlationId !== msg.properties.correlationId) {
-                channel.nack(msg, false, true);
-                return;
-            }
+        if (options?.batchSize && options.batchSize > 1) {
+            return await this.batchListener(queueName, channel, onMessage, options);
+        }
+        else {
+            await channel.consume(queueName, async (msg) => {
+                this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`);
+                await this.processSingleMessage(queueName, msg, channel, onMessage, options);
+            });
+        }
+    }
+    async batchListener(queueName, channel, onMessage, options) {
+        if (!options?.batchSize) {
+            throw new Error('Batch size must be defined for batch listener');
+        }
+        const batch = [];
+        const processBatch = async () => {
             try {
-                const content = JSON.parse(msg.content.toString());
-                const message = {
-                    content,
-                    metadata: {
-                        headers: msg.properties.headers,
-                        correlationId: msg.properties.correlationId,
-                        redelivered: msg.fields.redelivered,
-                    },
-                };
-                const deathCount = msg.properties.headers?.['x-delivery-count'] || 0;
-                const attempts = deathCount + 1;
-                const result = await onMessage(message);
-                if (!result) {
-                    const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries;
-                    channel.nack(msg, false, requeue);
-                    if (!requeue) {
-                        this.logger.warn(`⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`);
-                    }
-                }
-                else {
-                    channel.ack(msg);
-                    this.logger.debug(`✅ Message successfully processed`);
-                }
+                await Promise.allSettled(batch.map(async (msg) => {
+                    return await this.processSingleMessage(queueName, msg, channel, onMessage, options);
+                }));
             }
             catch (error) {
-                this.logger.error('🚨 Message processing error:', error);
-                channel.nack(msg, false, false);
+                this.logger.error('🚨 Error processing batch:', error);
+            }
+            finally {
+                batch.length = 0;
+            }
+        };
+        let timer = null;
+        const setTimer = () => {
+            timer = setInterval(() => {
+                if (batch.length > 0) {
+                    processBatch();
+                }
+            }, options?.batchTimeout ?? DEFUALT_BATCH_TIMEOUT);
+        };
+        const clearTimer = () => {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        };
+        setTimer();
+        await channel.consume(queueName, async (msg) => {
+            if (!msg)
+                return;
+            batch.push(msg);
+            if (batch.length >= options.batchSize) {
+                clearTimer();
+                await processBatch();
+                setTimer();
             }
         });
+    }
+    async processSingleMessage(queueName, msg, channel, onMessage, options) {
+        if (!msg) {
+            return;
+        }
+        if (options?.correlationId && options.correlationId !== msg.properties.correlationId) {
+            channel.nack(msg, false, true);
+            return;
+        }
+        try {
+            const content = JSON.parse(msg.content.toString());
+            const message = {
+                content,
+                metadata: {
+                    headers: msg.properties.headers,
+                    correlationId: msg.properties.correlationId,
+                    redelivered: msg.fields.redelivered,
+                },
+            };
+            const deathCount = msg.properties.headers?.['x-delivery-count'] || 0;
+            const attempts = deathCount + 1;
+            const result = await onMessage(message);
+            if (!result) {
+                const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries;
+                channel.nack(msg, false, requeue);
+                if (!requeue) {
+                    this.logger.warn(`⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`);
+                }
+            }
+            else {
+                channel.ack(msg);
+                this.logger.debug(`✅ Message successfully processed`);
+            }
+        }
+        catch (error) {
+            this.logger.error('🚨 Message processing error:', error);
+            channel.nack(msg, false, false);
+        }
     }
     async getProducerChannel(queueName) {
         this.logger.debug(`🗿 Creating new producer Channel`);
@@ -9382,10 +9436,10 @@ class AMQPClient {
         }
         return producer;
     }
-    async getConsumerChannel({ queueName, deadLetter }) {
+    async getConsumerChannel({ queueName, deadLetter, prefetch, }) {
         this.logger.debug(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`);
         const channelQueueName = `consumer-${queueName}-${Date.now()}`;
-        const channel = await this.createConsumerChannel(channelQueueName, 1);
+        const channel = await this.createConsumerChannel(channelQueueName, prefetch);
         const assertQueueOptions = {
             durable: true,
             exclusive: false,
@@ -9425,7 +9479,7 @@ class AMQPClient {
                 this.logger.warn(`⚠️ Queue "${queueName}" exists with different arguments.`);
                 try {
                     // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-                    const channel = await this.createConsumerChannel(channelQueueName, 1);
+                    const channel = await this.createConsumerChannel(channelQueueName, prefetch);
                     const queue = await channel.checkQueue(queueName);
                     if (queue.messageCount === 0) {
                         this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`);

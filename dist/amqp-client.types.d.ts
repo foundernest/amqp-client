@@ -32,6 +32,8 @@ export interface ConsumeOptions {
     deadLetter?: boolean;
     /** Only process messages with matching correlation ID */
     correlationId?: string;
+    batchSize?: number;
+    batchTimeout?: number;
 }
 /**
  * Param Configuration options for establishing a connection to an AMQP broker.

@@ -34,6 +34,9 @@ export interface ConsumeOptions {
   deadLetter?: boolean
   /** Only process messages with matching correlation ID */
   correlationId?: string
+
+  batchSize?: number
+  batchTimeout?: number
 }
 
 /**

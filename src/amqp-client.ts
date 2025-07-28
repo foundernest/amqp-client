@@ -15,6 +15,8 @@ export type AMQPClientArgs = ConnectionOptions & {
 
 type AMQPError = { code: number; message: string }
 
+const DEFUALT_BATCH_TIMEOUT: number = 2000
+
 export class AMQPClient implements AMQPClientInterface {
   private connection: amqp.ChannelModel | null = null
   private producer: amqp.Channel | null = null
@@ -178,51 +180,124 @@ export class AMQPClient implements AMQPClientInterface {
     const channel = await this.getConsumerChannel({
       queueName,
       deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
+      prefetch: options?.batchSize ?? 1,
     })
 
-    this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
-    await channel.consume(queueName, async (msg) => {
-      if (!msg) {
-        return
-      }
+    if (options?.batchSize && options.batchSize > 1) {
+      return await this.batchListener(queueName, channel, onMessage, options)
+    } else {
+      await channel.consume(queueName, async (msg) => {
+        this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
+        await this.processSingleMessage(queueName, msg, channel, onMessage, options)
+      })
+    }
+  }
 
-      if (options?.correlationId && options.correlationId !== msg.properties.correlationId) {
-        channel.nack(msg, false, true)
-        return
-      }
+  async batchListener<T>(
+    queueName: string,
+    channel: amqp.Channel,
+    onMessage: (message: AMQPMessage<T>) => Promise<boolean>,
+    options?: ConsumeOptions
+  ): Promise<void> {
+    if (!options?.batchSize) {
+      throw new Error('Batch size must be defined for batch listener')
+    }
 
+    const batch: amqp.ConsumeMessage[] = []
+
+    const processBatch = async () => {
       try {
-        const content: T = JSON.parse(msg.content.toString())
-        const message: AMQPMessage<T> = {
-          content,
-          metadata: {
-            headers: msg.properties.headers,
-            correlationId: msg.properties.correlationId,
-            redelivered: msg.fields.redelivered,
-          },
-        }
-
-        const deathCount = msg.properties.headers?.['x-delivery-count'] || 0
-        const attempts = deathCount + 1
-        const result = await onMessage(message)
-
-        if (!result) {
-          const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries
-          channel.nack(msg, false, requeue)
-          if (!requeue) {
-            this.logger.warn(
-              `⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
-            )
-          }
-        } else {
-          channel.ack(msg)
-          this.logger.debug(`✅ Message successfully processed`)
-        }
+        await Promise.allSettled(
+          batch.map(async (msg) => {
+            return await this.processSingleMessage(queueName, msg, channel, onMessage, options)
+          })
+        )
       } catch (error) {
-        this.logger.error('🚨 Message processing error:', error)
-        channel.nack(msg, false, false)
+        this.logger.error('🚨 Error processing batch:', error)
+      } finally {
+        batch.length = 0
+      }
+    }
+
+    let timer: NodeJS.Timeout | null = null
+
+    const setTimer = () => {
+      timer = setInterval(() => {
+        if (batch.length > 0) {
+          processBatch()
+        }
+      }, options?.batchTimeout ?? DEFUALT_BATCH_TIMEOUT)
+    }
+
+    const clearTimer = () => {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+
+    setTimer()
+
+    await channel.consume(queueName, async (msg) => {
+      if (!msg) return
+
+      batch.push(msg)
+
+      if (batch.length >= options.batchSize!) {
+        clearTimer()
+        await processBatch()
+        setTimer()
       }
     })
+  }
+
+  private async processSingleMessage<T>(
+    queueName: string,
+    msg: amqp.ConsumeMessage | null,
+    channel: amqp.Channel,
+    onMessage: (message: AMQPMessage<T>) => Promise<boolean>,
+    options?: ConsumeOptions
+  ): Promise<void> {
+    if (!msg) {
+      return
+    }
+
+    if (options?.correlationId && options.correlationId !== msg.properties.correlationId) {
+      channel.nack(msg, false, true)
+      return
+    }
+
+    try {
+      const content: T = JSON.parse(msg.content.toString())
+      const message: AMQPMessage<T> = {
+        content,
+        metadata: {
+          headers: msg.properties.headers,
+          correlationId: msg.properties.correlationId,
+          redelivered: msg.fields.redelivered,
+        },
+      }
+
+      const deathCount = msg.properties.headers?.['x-delivery-count'] || 0
+      const attempts = deathCount + 1
+      const result = await onMessage(message)
+
+      if (!result) {
+        const requeue = attempts <= this.options.messageExpiration.defaultMaxRetries
+        channel.nack(msg, false, requeue)
+        if (!requeue) {
+          this.logger.warn(
+            `⚠️ Message exceeded retry limit (${this.options.messageExpiration.defaultMaxRetries}) and will be moved to DLQ: ${queueName}.dlq`
+          )
+        }
+      } else {
+        channel.ack(msg)
+        this.logger.debug(`✅ Message successfully processed`)
+      }
+    } catch (error) {
+      this.logger.error('🚨 Message processing error:', error)
+      channel.nack(msg, false, false)
+    }
   }
 
   private async getProducerChannel(queueName?: string): Promise<amqp.Channel> {
@@ -249,11 +324,19 @@ export class AMQPClient implements AMQPClientInterface {
     return producer
   }
 
-  private async getConsumerChannel({ queueName, deadLetter }: { queueName: string; deadLetter: boolean }) {
+  private async getConsumerChannel({
+    queueName,
+    deadLetter,
+    prefetch,
+  }: {
+    queueName: string
+    deadLetter: boolean
+    prefetch: number
+  }) {
     this.logger.debug(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`)
 
     const channelQueueName = `consumer-${queueName}-${Date.now()}`
-    const channel = await this.createConsumerChannel(channelQueueName, 1)
+    const channel = await this.createConsumerChannel(channelQueueName, prefetch)
     const assertQueueOptions: amqp.Options.AssertQueue = {
       durable: true,
       exclusive: false,
@@ -297,7 +380,7 @@ export class AMQPClient implements AMQPClientInterface {
 
         try {
           // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-          const channel = await this.createConsumerChannel(channelQueueName, 1)
+          const channel = await this.createConsumerChannel(channelQueueName, prefetch)
           const queue = await channel.checkQueue(queueName)
           if (queue.messageCount === 0) {
             this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`)
