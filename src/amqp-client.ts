@@ -251,7 +251,7 @@ export class AMQPClient implements AMQPClientInterface {
     })
   }
 
-  async processSingleMessage<T>(
+  private async processSingleMessage<T>(
     queueName: string,
     msg: amqp.ConsumeMessage | null,
     channel: amqp.Channel,
