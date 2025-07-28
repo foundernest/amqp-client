@@ -178,6 +178,7 @@ export class AMQPClient implements AMQPClientInterface {
     const channel = await this.getConsumerChannel({
       queueName,
       deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
+      prefetch: options?.batchSize ?? 1,
     })
 
     this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
@@ -259,11 +260,19 @@ export class AMQPClient implements AMQPClientInterface {
     return producer
   }
 
-  private async getConsumerChannel({ queueName, deadLetter }: { queueName: string; deadLetter: boolean }) {
+  private async getConsumerChannel({
+    queueName,
+    deadLetter,
+    prefetch,
+  }: {
+    queueName: string
+    deadLetter: boolean
+    prefetch: number
+  }) {
     this.logger.debug(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`)
 
     const channelQueueName = `consumer-${queueName}-${Date.now()}`
-    const channel = await this.createConsumerChannel(channelQueueName, 1)
+    const channel = await this.createConsumerChannel(channelQueueName, prefetch)
     const assertQueueOptions: amqp.Options.AssertQueue = {
       durable: true,
       exclusive: false,
@@ -307,7 +316,7 @@ export class AMQPClient implements AMQPClientInterface {
 
         try {
           // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-          const channel = await this.createConsumerChannel(channelQueueName, 1)
+          const channel = await this.createConsumerChannel(channelQueueName, prefetch)
           const queue = await channel.checkQueue(queueName)
           if (queue.messageCount === 0) {
             this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`)
