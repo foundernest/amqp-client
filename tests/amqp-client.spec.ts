@@ -101,7 +101,7 @@ describe('AMQPClient', () => {
     })
   })
 
-  describe('When creating a listener', () => {
+  describe('When creating a single-message listener', () => {
     let client: AMQPClient
     beforeEach(async () => {
       onMessageMock.mockResolvedValue(true)
@@ -211,6 +211,150 @@ describe('AMQPClient', () => {
     })
   })
 
+  describe('When creating a batch listener', () => {
+    let client: AMQPClient
+    beforeEach(async () => {
+      onMessageMock.mockResolvedValue(true)
+      client = generateClient()
+      await client.sendMessage('test-queue', { key: 'value-2' })
+      await client.createListener('test-queue', onMessageMock, { batchSize: 2 })
+    })
+
+    it('should create a consumer channel', () => {
+      expect(mockConnection.createChannel).toHaveBeenCalled()
+      expect(mockChannel.prefetch).toHaveBeenCalledWith(2)
+      expect(mockChannel.on).toHaveBeenCalledWith('error', expect.any(Function))
+      expect(mockChannel.on).toHaveBeenCalledWith('close', expect.any(Function))
+    })
+
+    it('should assert the queue with correct options', () => {
+      expect(mockChannel.assertQueue).toHaveBeenCalledWith('test-queue', {
+        durable: true,
+        exclusive: false,
+        arguments: {
+          'x-queue-type': 'quorum',
+          'x-max-retries': 3,
+          'x-dead-letter-exchange': 'test-queue.dlx',
+          'x-dead-letter-routing-key': 'test-queue.dead',
+        },
+        deadLetterExchange: 'test-queue.dlx',
+        deadLetterRoutingKey: 'test-queue.dead',
+      })
+    })
+
+    it('should consume messages from the queue', () => {
+      expect(mockChannel.consume).toHaveBeenCalledWith('test-queue', expect.any(Function))
+    })
+
+    describe('and all batch messages are received', () => {
+      const mockMsg1 = {
+        content: Buffer.from(JSON.stringify({ key: 'value' })),
+        properties: { headers: {}, correlationId: null },
+        fields: { redelivered: false },
+      }
+      const mockMsg2 = {
+        content: Buffer.from(JSON.stringify({ key: 'value-2' })),
+        properties: { headers: {}, correlationId: null },
+        fields: { redelivered: false },
+      }
+
+      beforeEach(async () => {
+        await client.sendMessage('test-queue', { key: 'value-2' })
+        const consumeCallback = mockChannel.consume.mock.calls[0][1]
+        await consumeCallback(mockMsg1)
+        await consumeCallback(mockMsg2)
+      })
+
+      it('should call the onMessage handler for each message', () => {
+        expect(onMessageMock).toHaveBeenCalled()
+
+        expect(onMessageMock).toHaveBeenCalledWith({
+          content: { key: 'value' },
+          metadata: {
+            headers: {},
+            correlationId: null,
+            redelivered: false,
+          },
+        })
+
+        expect(onMessageMock).toHaveBeenCalledWith({
+          content: { key: 'value-2' },
+          metadata: {
+            headers: {},
+            correlationId: null,
+            redelivered: false,
+          },
+        })
+      })
+
+      it('should acknowledge each message', () => {
+        expect(mockChannel.ack).toHaveBeenCalledWith(mockMsg1)
+        expect(mockChannel.ack).toHaveBeenCalledWith(mockMsg2)
+      })
+    })
+
+    describe('and some message processing fails', () => {
+      const mockMsg1 = {
+        content: Buffer.from(JSON.stringify({ key: 'value' })),
+        properties: { headers: {}, correlationId: null },
+        fields: { redelivered: false },
+      }
+      const mockMsg2 = {
+        content: Buffer.from(JSON.stringify({ key: 'value-2' })),
+        properties: { headers: {}, correlationId: null },
+        fields: { redelivered: false },
+      }
+
+      beforeEach(async () => {
+        onMessageMock.mockResolvedValue(false)
+        const consumeCallback = mockChannel.consume.mock.calls[0][1]
+        await consumeCallback(mockMsg1)
+        await consumeCallback(mockMsg2)
+      })
+
+      it('should nack the failing messages and requeue it', () => {
+        expect(mockChannel.nack).toHaveBeenCalledTimes(2)
+        expect(mockChannel.nack).toHaveBeenCalledWith(expect.any(Object), false, true)
+      })
+    })
+
+    describe('and processing throws an error', () => {
+      beforeEach(async () => {
+        onMessageMock.mockRejectedValue(new Error('Processing error'))
+        const consumeCallback = mockChannel.consume.mock.calls[0][1]
+        await consumeCallback({
+          content: Buffer.from(JSON.stringify({ key: 'value' })),
+          properties: { headers: {}, correlationId: null },
+          fields: { redelivered: false },
+        })
+        await consumeCallback({
+          content: Buffer.from(JSON.stringify({ key: 'value-2' })),
+          properties: { headers: {}, correlationId: null },
+          fields: { redelivered: false },
+        })
+      })
+
+      it('should nack the message without requeuing', () => {
+        expect(mockChannel.nack).toHaveBeenCalledWith(expect.any(Object), false, false)
+      })
+    })
+
+    describe('and the channel emits an error', () => {
+      it('should remove the consumer channel from consumers map', async () => {
+        // Since we cannot access private properties, we can check if the client can create a new listener
+        mockConnection.createChannel.mockResolvedValueOnce({
+          ...mockChannel,
+          consume: vi.fn(),
+        })
+        onMessageMock.mockClear()
+        await client.createListener('test-queue', onMessageMock)
+
+        expect(mockConnection.createChannel).toHaveBeenCalledTimes(3)
+        expect(mockChannel.consume).toHaveBeenCalled()
+      })
+    })
+  })
+
   describe('When closing the client', () => {
     let client: AMQPClient
     beforeEach(async () => {
@@ -269,6 +413,7 @@ describe('AMQPClient', () => {
     let client: AMQPClient
     beforeEach(async () => {
       client = generateClient()
+      onMessageMock.mockResolvedValue(true)
       await client.sendMessage('test-queue', { key: 'value' }, { correlationId: '123' })
     })
 

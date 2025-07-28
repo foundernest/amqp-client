@@ -36,6 +36,7 @@ export interface ConsumeOptions {
   correlationId?: string
 
   batchSize?: number
+  batchTimeout?: number
 }
 
 /**

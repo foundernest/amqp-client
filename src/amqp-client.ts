@@ -15,6 +15,8 @@ export type AMQPClientArgs = ConnectionOptions & {
 
 type AMQPError = { code: number; message: string }
 
+const DEFUALT_BATCH_TIMEOUT: number = 2000
+
 export class AMQPClient implements AMQPClientInterface {
   private connection: amqp.ChannelModel | null = null
   private producer: amqp.Channel | null = null
@@ -181,14 +183,76 @@ export class AMQPClient implements AMQPClientInterface {
       prefetch: options?.batchSize ?? 1,
     })
 
-    this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
+    if (options?.batchSize && options.batchSize > 1) {
+      return await this.batchListener(queueName, channel, onMessage, options)
+    } else {
+      await channel.consume(queueName, async (msg) => {
+        this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
+        await this.processSingleMessage(queueName, msg, channel, onMessage, options)
+      })
+    }
+  }
+
+  async batchListener<T>(
+    queueName: string,
+    channel: amqp.Channel,
+    onMessage: (message: AMQPMessage<T>) => Promise<boolean>,
+    options?: ConsumeOptions
+  ): Promise<void> {
+    if (!options?.batchSize) {
+      throw new Error('Batch size must be defined for batch listener')
+    }
+
+    const batch: amqp.ConsumeMessage[] = []
+
+    const processBatch = async () => {
+      try {
+        await Promise.allSettled(
+          batch.map(async (msg) => {
+            return await this.processSingleMessage(queueName, msg, channel, onMessage, options)
+          })
+        )
+      } catch (error) {
+        this.logger.error('🚨 Error processing batch:', error)
+      } finally {
+        batch.length = 0
+      }
+    }
+
+    let timer: NodeJS.Timeout | null = null
+
+    const setTimer = () => {
+      timer = setInterval(() => {
+        if (batch.length > 0) {
+          processBatch()
+        }
+      }, options?.batchTimeout ?? DEFUALT_BATCH_TIMEOUT)
+    }
+
+    const clearTimer = () => {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+
+    setTimer()
 
     await channel.consume(queueName, async (msg) => {
-      await this.processSingleMessage(msg, channel, onMessage, options)
+      if (!msg) return
+
+      batch.push(msg)
+
+      if (batch.length >= options.batchSize!) {
+        clearTimer()
+        await processBatch()
+        setTimer()
+      }
     })
   }
 
   async processSingleMessage<T>(
+    queueName: string,
     msg: amqp.ConsumeMessage | null,
     channel: amqp.Channel,
     onMessage: (message: AMQPMessage<T>) => Promise<boolean>,
