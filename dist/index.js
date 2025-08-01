@@ -7820,7 +7820,7 @@ credentials$1.external = function() {
 var name = "amqplib";
 var homepage = "http://amqp-node.github.io/amqplib/";
 var main = "./channel_api.js";
-var version = "0.10.7";
+var version = "0.10.8";
 var description = "An AMQP 0-9-1 (e.g., RabbitMQ) library and client.";
 var repository = {
 	type: "git",
@@ -9295,7 +9295,7 @@ class AMQPClient {
             this.connection = null;
         }
     }
-    async sendMessage(queueName, message, { headers, correlationId } = {}) {
+    async sendMessage(queueName, message, { headers, correlationId, priority } = {}) {
         try {
             if (!this.producer) {
                 this.producer = await this.getProducerChannel(queueName);
@@ -9304,6 +9304,7 @@ class AMQPClient {
             return this.producer.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
                 headers,
                 correlationId,
+                priority,
                 persistent: true,
                 deliveryMode: 2,
                 contentType: 'application/json',

@@ -2,13 +2,13 @@
  * Represents a message received from an AMQP queue, containing the message content and metadata.
  * @template T - The type of the message content
  */
-export interface AMQPMessage<T = any> {
+export interface AMQPMessage<T = unknown> {
     /** The deserialized message content */
     content: T;
     /** Metadata associated with the message */
     metadata: {
         /** Optional headers attached to the message */
-        headers?: Record<string, any>;
+        headers?: Record<string, unknown>;
         /** Unique identifier used for message correlation and tracking */
         correlationId?: string;
         /** Indicates whether this message has been redelivered after a failed processing attempt */
@@ -20,9 +20,11 @@ export interface AMQPMessage<T = any> {
  */
 export interface MessagePublishOptions {
     /** Custom headers to attach to the message */
-    headers?: Record<string, any>;
+    headers?: Record<string, unknown>;
     /** Unique identifier for message correlation and tracking */
     correlationId?: string;
+    /** Message priority (0-255, where higher numbers indicate higher priority) */
+    priority?: number;
 }
 /**
  * Configuration options for consuming messages from an AMQP queue.
