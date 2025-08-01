@@ -96,6 +96,19 @@ describe('AMQPClient', () => {
       )
     })
 
+    it('should send messages with the specified priority', async () => {
+      const client = generateClient()
+      await client.sendMessage('test-queue', { key: 'value' }, { priority: 8 })
+
+      expect(mockChannel.sendToQueue).toHaveBeenCalledWith(
+        'test-queue',
+        Buffer.from(JSON.stringify({ key: 'value' })),
+        expect.objectContaining({
+          priority: 8,
+        })
+      )
+    })
+
     it('should log that the message was sent', () => {
       // If using a custom logger, you can check logger.info was called with correct message
     })
