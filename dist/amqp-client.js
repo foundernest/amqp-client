@@ -114,7 +114,7 @@ export class AMQPClient {
             this.connection = null;
         }
     }
-    async sendMessage(queueName, message, { headers, correlationId } = {}) {
+    async sendMessage(queueName, message, { headers, correlationId, priority } = {}) {
         try {
             if (!this.producer) {
                 this.producer = await this.getProducerChannel(queueName);
@@ -123,6 +123,7 @@ export class AMQPClient {
             return this.producer.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
                 headers,
                 correlationId,
+                priority,
                 persistent: true,
                 deliveryMode: 2,
                 contentType: 'application/json',

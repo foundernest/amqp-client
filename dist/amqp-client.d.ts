@@ -16,7 +16,7 @@ export declare class AMQPClient implements AMQPClientInterface {
     private reconnect;
     private calculateBackoffDelay;
     close(): Promise<void>;
-    sendMessage<T extends object>(queueName: string, message: T, { headers, correlationId }?: MessagePublishOptions): Promise<boolean>;
+    sendMessage<T extends object>(queueName: string, message: T, { headers, correlationId, priority }?: MessagePublishOptions): Promise<boolean>;
     createListener<T extends object>(queueName: string, onMessage: (msg: AMQPMessage<T>) => Promise<boolean>, options?: ConsumeOptions): Promise<void>;
     private getProducerChannel;
     private getConsumerChannel;

@@ -147,7 +147,7 @@ export class AMQPClient implements AMQPClientInterface {
   async sendMessage<T extends object>(
     queueName: string,
     message: T,
-    { headers, correlationId }: MessagePublishOptions = {}
+    { headers, correlationId, priority }: MessagePublishOptions = {}
   ): Promise<boolean> {
     try {
       if (!this.producer) {
@@ -158,6 +158,7 @@ export class AMQPClient implements AMQPClientInterface {
       return this.producer.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
         headers,
         correlationId,
+        priority,
         persistent: true,
         deliveryMode: 2,
         contentType: 'application/json',
