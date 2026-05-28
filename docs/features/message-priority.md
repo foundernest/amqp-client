@@ -1,9 +1,11 @@
 # Feature: Message Priority
 
+**Status:** Implemented — v0.2.6
+
 ## Summary
 
 Messages can be assigned a numeric priority (0–255) to influence delivery order within a queue.
-Higher values mean higher priority. Added in v0.2.6.
+Higher values mean higher priority.
 
 ## API
 

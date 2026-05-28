@@ -1,5 +1,7 @@
 # Feature: Dead Letter Queue
 
+**Status:** Implemented
+
 ## Summary
 
 When a message cannot be processed after the configured number of retries, it is routed to a dead

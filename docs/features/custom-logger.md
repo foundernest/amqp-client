@@ -1,5 +1,7 @@
 # Feature: Custom Logger
 
+**Status:** Implemented
+
 ## Summary
 
 By default the client logs to `console`. A custom logger implementing `AMQPClientLoggerInterface`

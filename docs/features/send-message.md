@@ -1,5 +1,7 @@
 # Feature: sendMessage
 
+**Status:** Implemented
+
 ## Summary
 
 `sendMessage` publishes a JSON-serialized message to a named AMQP queue. Returns `true` if the

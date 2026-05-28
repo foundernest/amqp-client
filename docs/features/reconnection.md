@@ -1,5 +1,7 @@
 # Feature: Reconnection
 
+**Status:** Implemented
+
 ## Summary
 
 The client reconnects automatically when the AMQP connection or a channel is closed unexpectedly.

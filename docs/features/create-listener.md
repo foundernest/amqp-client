@@ -1,5 +1,7 @@
 # Feature: createListener
 
+**Status:** Implemented
+
 ## Summary
 
 `createListener` subscribes to a named AMQP queue. The provided callback is invoked for each
