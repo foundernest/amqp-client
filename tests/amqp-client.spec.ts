@@ -450,4 +450,86 @@ describe('AMQPClient', () => {
       expect(mockChannel.nack).toHaveBeenCalledWith(mockMsg, false, false)
     })
   })
+
+  describe('Re-subscription after reconnect', () => {
+    const getHandler = (mock: Mock, event: string) => mock.mock.calls.find(([name]) => name === event)?.[1]
+
+    // The reconnect backoff adds up to 1s of jitter, so drive it with fake timers.
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('re-establishes consumers when the connection drops and recovers', async () => {
+      const client = generateClient({ reconnection: { initialDelay: 1, maxDelay: 2, maxAttempts: 5 } })
+      onMessageMock.mockResolvedValue(true)
+      await client.createListener('test-queue', onMessageMock)
+
+      expect(mockChannel.consume).toHaveBeenCalledTimes(1)
+      expect(client.getHealth().activeConsumers).toBe(1)
+
+      // Simulate the consumer channel and then the connection dropping.
+      getHandler(mockChannel.on as Mock, 'close')()
+      getHandler(mockConnection.on as Mock, 'close')()
+
+      // Flush the backoff timer so reconnect + re-subscribe run.
+      await vi.advanceTimersByTimeAsync(1100)
+
+      expect(mockChannel.consume).toHaveBeenCalledTimes(2)
+      expect(client.isConnected()).toBe(true)
+      expect(client.getHealth().healthy).toBe(true)
+    })
+
+    it('does not duplicate a consumer that survived the reconnect', async () => {
+      const client = generateClient({ reconnection: { initialDelay: 1, maxDelay: 2, maxAttempts: 5 } })
+      onMessageMock.mockResolvedValue(true)
+      await client.createListener('test-queue', onMessageMock)
+
+      // Connection blips but the consumer channel stayed alive (still tracked).
+      getHandler(mockConnection.on as Mock, 'close')()
+      await vi.advanceTimersByTimeAsync(1100)
+
+      expect(mockChannel.consume).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('Health reporting', () => {
+    const getHandler = (mock: Mock, event: string) => mock.mock.calls.find(([name]) => name === event)?.[1]
+
+    it('reports unhealthy before connecting', () => {
+      const client = generateClient()
+
+      expect(client.isConnected()).toBe(false)
+      expect(client.getHealth()).toEqual({
+        connected: false,
+        expectedConsumers: 0,
+        activeConsumers: 0,
+        healthy: false,
+      })
+    })
+
+    it('reports healthy once a listener is consuming', async () => {
+      const client = generateClient()
+      onMessageMock.mockResolvedValue(true)
+      await client.createListener('test-queue', onMessageMock)
+
+      expect(client.getHealth()).toEqual({
+        connected: true,
+        expectedConsumers: 1,
+        activeConsumers: 1,
+        healthy: true,
+      })
+    })
+
+    it('reports unhealthy when an expected consumer is missing after a drop', async () => {
+      const client = generateClient()
+      onMessageMock.mockResolvedValue(true)
+      await client.createListener('test-queue', onMessageMock)
+
+      getHandler(mockChannel.on as Mock, 'close')()
+
+      const health = client.getHealth()
+      expect(health.expectedConsumers).toBe(1)
+      expect(health.activeConsumers).toBe(0)
+      expect(health.healthy).toBe(false)
+    })
+  })
 })

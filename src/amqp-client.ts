@@ -2,6 +2,7 @@ import * as amqp from 'amqplib'
 import { type AMQPClientLoggerInterface } from './amqp-client-logger.interface'
 import { type AMQPClientInterface } from './amqp-client.interface'
 import {
+  type AMQPClientHealth,
   type AMQPMessage,
   type ClientOptions,
   type ConnectionOptions,
@@ -15,10 +16,17 @@ export type AMQPClientArgs = ConnectionOptions & {
 
 type AMQPError = { code: number; message: string }
 
+type ListenerRegistration = {
+  onMessage: (msg: AMQPMessage<object>) => Promise<boolean>
+  options?: ConsumeOptions
+}
+
 export class AMQPClient implements AMQPClientInterface {
   private connection: amqp.ChannelModel | null = null
   private producer: amqp.Channel | null = null
   private consumers: Map<string, amqp.Channel> = new Map<string, amqp.Channel>()
+  private listeners: Map<string, ListenerRegistration> = new Map<string, ListenerRegistration>()
+  private connected = false
   private reconnectAttempts = 0
   private readonly options: ClientOptions
   private readonly logger: AMQPClientLoggerInterface
@@ -50,6 +58,22 @@ export class AMQPClient implements AMQPClientInterface {
     this.logger = logger
   }
 
+  isConnected(): boolean {
+    return this.connected
+  }
+
+  getHealth(): AMQPClientHealth {
+    const expectedConsumers = this.listeners.size
+    const activeConsumers = this.consumers.size
+
+    return {
+      connected: this.connected,
+      expectedConsumers,
+      activeConsumers,
+      healthy: this.connected && activeConsumers >= expectedConsumers,
+    }
+  }
+
   private async connect(connectionName?: string, applicationName?: string): Promise<void> {
     const { host, port = 5672, username, password, vhost = '/' } = this.options
     const connectionString = `amqp://${username ? `${username}:${password}@` : ''}${host}:${port}/${vhost}`
@@ -63,19 +87,23 @@ export class AMQPClient implements AMQPClientInterface {
       })
 
       this.reconnectAttempts = 0
+      this.connected = true
 
       this.logger.info('📭️ Connected to AMQP broker.')
 
       this.connection.on('error', (err: Error): void => {
+        this.connected = false
         this.logger.error('🚨 AMQP Connection Error:', err)
         this.reconnect(connectionName)
       })
 
       this.connection.on('close', (): void => {
+        this.connected = false
         this.logger.warn('⚠️ AMQP Connection Closed')
         this.reconnect(connectionName)
       })
     } catch (error) {
+      this.connected = false
       this.logger.error('🚨 Failed to connect to AMQP broker:', error)
       await this.reconnect(connectionName)
     }
@@ -96,6 +124,7 @@ export class AMQPClient implements AMQPClientInterface {
       setTimeout(async () => {
         try {
           await this.connect(queueName)
+          await this.resubscribeListeners()
           resolve()
         } catch (err) {
           this.logger.error('🚨 Reconnection failed:', err)
@@ -141,6 +170,9 @@ export class AMQPClient implements AMQPClientInterface {
       this.logger.error('🚨 Error closing AMQP connection:', error)
     } finally {
       this.connection = null
+      this.connected = false
+      this.consumers.clear()
+      this.listeners.clear()
     }
   }
 
@@ -172,6 +204,44 @@ export class AMQPClient implements AMQPClientInterface {
   }
 
   async createListener<T extends object>(
+    queueName: string,
+    onMessage: (msg: AMQPMessage<T>) => Promise<boolean>,
+    options?: ConsumeOptions
+  ): Promise<void> {
+    // Remember the registration so consumers can be re-established after a reconnect.
+    this.listeners.set(queueName, {
+      onMessage: onMessage as (msg: AMQPMessage<object>) => Promise<boolean>,
+      options,
+    })
+
+    await this.subscribe(queueName, onMessage, options)
+  }
+
+  private async resubscribeListeners(): Promise<void> {
+    if (!this.connected || this.listeners.size === 0) {
+      return
+    }
+
+    for (const [queueName, registration] of this.listeners) {
+      await this.resubscribeListener(queueName, registration)
+    }
+  }
+
+  private async resubscribeListener(queueName: string, registration: ListenerRegistration): Promise<void> {
+    // A consumer channel that survived the reconnect is still live; don't duplicate it.
+    if (this.consumers.has(queueName)) {
+      return
+    }
+
+    try {
+      await this.subscribe(queueName, registration.onMessage, registration.options)
+      this.logger.info(`🔁 Re-subscribed consumer to queue: ${queueName}`)
+    } catch (error) {
+      this.logger.error(`💥 Failed to re-subscribe consumer to queue: ${queueName}`, error)
+    }
+  }
+
+  private async subscribe<T extends object>(
     queueName: string,
     onMessage: (msg: AMQPMessage<T>) => Promise<boolean>,
     options?: ConsumeOptions
@@ -253,8 +323,7 @@ export class AMQPClient implements AMQPClientInterface {
   private async getConsumerChannel({ queueName, deadLetter }: { queueName: string; deadLetter: boolean }) {
     this.logger.debug(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`)
 
-    const channelQueueName = `consumer-${queueName}-${Date.now()}`
-    const channel = await this.createConsumerChannel(channelQueueName, 1)
+    const channel = await this.createConsumerChannel(queueName, 1)
     const assertQueueOptions: amqp.Options.AssertQueue = {
       durable: true,
       exclusive: false,
@@ -298,7 +367,7 @@ export class AMQPClient implements AMQPClientInterface {
 
         try {
           // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-          const channel = await this.createConsumerChannel(channelQueueName, 1)
+          const channel = await this.createConsumerChannel(queueName, 1)
           const queue = await channel.checkQueue(queueName)
           if (queue.messageCount === 0) {
             this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`)

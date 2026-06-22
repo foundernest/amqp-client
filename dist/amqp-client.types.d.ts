@@ -98,3 +98,16 @@ export type ConnectionConstants = {
     };
 };
 export type ClientOptions = ClientConnectionOptions & ConnectionConstants;
+/**
+ * A snapshot of the client's connectivity, suitable for health/liveness checks.
+ */
+export interface AMQPClientHealth {
+    /** Whether the underlying connection to the broker is currently established */
+    connected: boolean;
+    /** Number of listeners the client has been asked to keep subscribed */
+    expectedConsumers: number;
+    /** Number of consumer channels that are currently active */
+    activeConsumers: number;
+    /** True when connected and every expected consumer is actively subscribed */
+    healthy: boolean;
+}

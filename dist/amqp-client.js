@@ -4,6 +4,8 @@ export class AMQPClient {
         this.connection = null;
         this.producer = null;
         this.consumers = new Map();
+        this.listeners = new Map();
+        this.connected = false;
         this.reconnectAttempts = 0;
         // Define default options
         const defaultOptions = {
@@ -30,6 +32,19 @@ export class AMQPClient {
         };
         this.logger = logger;
     }
+    isConnected() {
+        return this.connected;
+    }
+    getHealth() {
+        const expectedConsumers = this.listeners.size;
+        const activeConsumers = this.consumers.size;
+        return {
+            connected: this.connected,
+            expectedConsumers,
+            activeConsumers,
+            healthy: this.connected && activeConsumers >= expectedConsumers,
+        };
+    }
     async connect(connectionName, applicationName) {
         const { host, port = 5672, username, password, vhost = '/' } = this.options;
         const connectionString = `amqp://${username ? `${username}:${password}@` : ''}${host}:${port}/${vhost}`;
@@ -41,17 +56,21 @@ export class AMQPClient {
                 },
             });
             this.reconnectAttempts = 0;
+            this.connected = true;
             this.logger.info('📭️ Connected to AMQP broker.');
             this.connection.on('error', (err) => {
+                this.connected = false;
                 this.logger.error('🚨 AMQP Connection Error:', err);
                 this.reconnect(connectionName);
             });
             this.connection.on('close', () => {
+                this.connected = false;
                 this.logger.warn('⚠️ AMQP Connection Closed');
                 this.reconnect(connectionName);
             });
         }
         catch (error) {
+            this.connected = false;
             this.logger.error('🚨 Failed to connect to AMQP broker:', error);
             await this.reconnect(connectionName);
         }
@@ -68,6 +87,7 @@ export class AMQPClient {
             setTimeout(async () => {
                 try {
                     await this.connect(queueName);
+                    await this.resubscribeListeners();
                     resolve();
                 }
                 catch (err) {
@@ -112,6 +132,9 @@ export class AMQPClient {
         }
         finally {
             this.connection = null;
+            this.connected = false;
+            this.consumers.clear();
+            this.listeners.clear();
         }
     }
     async sendMessage(queueName, message, { headers, correlationId, priority } = {}) {
@@ -136,6 +159,35 @@ export class AMQPClient {
         return false;
     }
     async createListener(queueName, onMessage, options) {
+        // Remember the registration so consumers can be re-established after a reconnect.
+        this.listeners.set(queueName, {
+            onMessage: onMessage,
+            options,
+        });
+        await this.subscribe(queueName, onMessage, options);
+    }
+    async resubscribeListeners() {
+        if (!this.connected || this.listeners.size === 0) {
+            return;
+        }
+        for (const [queueName, registration] of this.listeners) {
+            await this.resubscribeListener(queueName, registration);
+        }
+    }
+    async resubscribeListener(queueName, registration) {
+        // A consumer channel that survived the reconnect is still live; don't duplicate it.
+        if (this.consumers.has(queueName)) {
+            return;
+        }
+        try {
+            await this.subscribe(queueName, registration.onMessage, registration.options);
+            this.logger.info(`🔁 Re-subscribed consumer to queue: ${queueName}`);
+        }
+        catch (error) {
+            this.logger.error(`💥 Failed to re-subscribe consumer to queue: ${queueName}`, error);
+        }
+    }
+    async subscribe(queueName, onMessage, options) {
         const channel = await this.getConsumerChannel({
             queueName,
             deadLetter: options?.deadLetter !== undefined ? options.deadLetter : true,
@@ -204,8 +256,7 @@ export class AMQPClient {
     }
     async getConsumerChannel({ queueName, deadLetter }) {
         this.logger.debug(`🗿 Asserting queue ${queueName} ${deadLetter ? 'with dead letter queue' : ''}`);
-        const channelQueueName = `consumer-${queueName}-${Date.now()}`;
-        const channel = await this.createConsumerChannel(channelQueueName, 1);
+        const channel = await this.createConsumerChannel(queueName, 1);
         const assertQueueOptions = {
             durable: true,
             exclusive: false,
@@ -245,7 +296,7 @@ export class AMQPClient {
                 this.logger.warn(`⚠️ Queue "${queueName}" exists with different arguments.`);
                 try {
                     // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-                    const channel = await this.createConsumerChannel(channelQueueName, 1);
+                    const channel = await this.createConsumerChannel(queueName, 1);
                     const queue = await channel.checkQueue(queueName);
                     if (queue.messageCount === 0) {
                         this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`);
