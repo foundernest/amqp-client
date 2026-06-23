@@ -10,6 +10,7 @@ export declare class AMQPClient implements AMQPClientInterface {
     private consumers;
     private listeners;
     private connected;
+    private isClosing;
     private reconnectAttempts;
     private readonly options;
     private readonly logger;
@@ -29,5 +30,7 @@ export declare class AMQPClient implements AMQPClientInterface {
     private getConsumerChannel;
     private bindQueueToChannel;
     private createConsumerChannel;
+    private forgetConsumer;
+    private discardChannel;
     private isAmqpError;
 }

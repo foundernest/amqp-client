@@ -9188,6 +9188,7 @@ class AMQPClient {
         this.consumers = new Map();
         this.listeners = new Map();
         this.connected = false;
+        this.isClosing = false;
         this.reconnectAttempts = 0;
         // Define default options
         const defaultOptions = {
@@ -9243,11 +9244,17 @@ class AMQPClient {
             this.connection.on('error', (err) => {
                 this.connected = false;
                 this.logger.error('🚨 AMQP Connection Error:', err);
+                if (this.isClosing) {
+                    return;
+                }
                 this.reconnect(connectionName);
             });
             this.connection.on('close', () => {
                 this.connected = false;
                 this.logger.warn('⚠️ AMQP Connection Closed');
+                if (this.isClosing) {
+                    return;
+                }
                 this.reconnect(connectionName);
             });
         }
@@ -9258,6 +9265,9 @@ class AMQPClient {
         }
     }
     async reconnect(queueName) {
+        if (this.isClosing) {
+            return;
+        }
         if (this.reconnectAttempts >= this.options.reconnection.maxAttempts) {
             this.logger.error('🚨 Max reconnection attempts reached. Giving up.');
             return;
@@ -9284,6 +9294,9 @@ class AMQPClient {
         return Math.ceil(exponentialDelay + Math.random() * 1000);
     }
     async close() {
+        // Disable reconnection so closing the connection below doesn't trigger the
+        // 'close' handler into reconnecting in the background. close() is terminal.
+        this.isClosing = true;
         try {
             if (this.producer) {
                 await this.producer.close();
@@ -9341,12 +9354,13 @@ class AMQPClient {
         return false;
     }
     async createListener(queueName, onMessage, options) {
-        // Remember the registration so consumers can be re-established after a reconnect.
+        await this.subscribe(queueName, onMessage, options);
+        // Remember the registration only after a successful subscribe, so a failed
+        // start doesn't leave a phantom listener that skews health or gets retried.
         this.listeners.set(queueName, {
             onMessage: onMessage,
             options,
         });
-        await this.subscribe(queueName, onMessage, options);
     }
     async resubscribeListeners() {
         if (!this.connected || this.listeners.size === 0) {
@@ -9476,15 +9490,17 @@ class AMQPClient {
             // PRECONDITION_FAILED ERROR | QUEUE EXISTS WITH DIFFERENT CONFIG
             if (this.isAmqpError(error) && error.code === 406) {
                 this.logger.warn(`⚠️ Queue "${queueName}" exists with different arguments.`);
+                // The 406 breaks the channel server-side; close it before replacing so
+                // its 'close' handler can't later evict the replacement (same map key).
+                await this.discardChannel(channel);
                 try {
-                    // WE NEED TO RECREATE THE CHANNEL. WHENEVER ASSERT QUEUE THROWS AN ERROR, THE CHANNEL BREAKS
-                    const channel = await this.createConsumerChannel(queueName, 1);
-                    const queue = await channel.checkQueue(queueName);
+                    const replacementChannel = await this.createConsumerChannel(queueName, 1);
+                    const queue = await replacementChannel.checkQueue(queueName);
                     if (queue.messageCount === 0) {
                         this.logger.info(`🔄 Queue "${queueName}" is empty. Recreating it with new arguments.`);
-                        await channel.deleteQueue(queueName);
+                        await replacementChannel.deleteQueue(queueName);
                         await this.bindQueueToChannel({
-                            channel,
+                            channel: replacementChannel,
                             queueName,
                             assertQueueOptions,
                             deadLetter,
@@ -9492,21 +9508,17 @@ class AMQPClient {
                             dlqName,
                             routingKey,
                         });
-                        return channel;
+                        return replacementChannel;
                     }
-                    else {
-                        this.logger.warn(`⚠️ Queue "${queueName}" has messages. Proceeding without re-declaring the queue.`);
-                        return channel;
-                    }
+                    this.logger.warn(`⚠️ Queue "${queueName}" has messages. Proceeding without re-declaring the queue.`);
+                    return replacementChannel;
                 }
                 catch (checkError) {
                     this.logger.error(`💥 Failed recreating queue "${queueName}":`, checkError);
                     throw checkError;
                 }
             }
-            else {
-                throw error;
-            }
+            throw error;
         }
     }
     async bindQueueToChannel({ channel, queueName, assertQueueOptions, deadLetter, exchangeName, dlqName, routingKey, }) {
@@ -9539,20 +9551,36 @@ class AMQPClient {
             if (prefetch) {
                 await channel.prefetch(prefetch);
             }
-            channel.on('error', (err) => {
+            const consumerChannel = channel;
+            consumerChannel.on('error', (err) => {
                 this.logger.error('🚨 AMQP Channel Error:', err);
-                this.consumers.delete(queueName);
+                this.forgetConsumer(queueName, consumerChannel);
             });
-            channel.on('close', () => {
+            consumerChannel.on('close', () => {
                 this.logger.warn('⚠️ AMQP Channel Closed');
-                this.consumers.delete(queueName);
+                this.forgetConsumer(queueName, consumerChannel);
             });
-            this.consumers.set(queueName, channel);
+            this.consumers.set(queueName, consumerChannel);
         }
         if (!channel) {
             throw new Error('💥 Channel is not available');
         }
         return channel;
+    }
+    // Only drop the map entry if it still points to this channel. A stale channel
+    // (e.g. the broken one from a 406 retry) must not evict its replacement.
+    forgetConsumer(queueName, channel) {
+        if (this.consumers.get(queueName) === channel) {
+            this.consumers.delete(queueName);
+        }
+    }
+    async discardChannel(channel) {
+        try {
+            await channel.close();
+        }
+        catch (error) {
+            this.logger.debug('🗑️ Ignoring error while discarding broken channel', error);
+        }
     }
     isAmqpError(error) {
         return typeof error === 'object' && error !== null && 'code' in error;

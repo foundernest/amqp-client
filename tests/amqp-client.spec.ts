@@ -532,4 +532,73 @@ describe('AMQPClient', () => {
       expect(health.healthy).toBe(false)
     })
   })
+
+  describe('Graceful close', () => {
+    const getHandler = (mock: Mock, event: string) => mock.mock.calls.find(([name]) => name === event)?.[1]
+
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('does not reconnect after an intentional close()', async () => {
+      const client = generateClient({ reconnection: { initialDelay: 1, maxDelay: 2, maxAttempts: 5 } })
+      onMessageMock.mockResolvedValue(true)
+      await client.createListener('test-queue', onMessageMock)
+
+      const connectionClose = getHandler(mockConnection.on as Mock, 'close')
+      await client.close()
+      const connectsAfterClose = connectMock.mock.calls.length
+
+      // A late broker 'close' event must not trigger a background reconnect.
+      connectionClose()
+      await vi.advanceTimersByTimeAsync(1100)
+
+      expect(connectMock.mock.calls.length).toBe(connectsAfterClose)
+      expect(client.isConnected()).toBe(false)
+    })
+  })
+
+  describe('Listener registration resilience', () => {
+    it('does not record a listener when the initial subscribe fails', async () => {
+      const client = generateClient()
+      mockConnection.createChannel.mockRejectedValueOnce(new Error('channel boom'))
+
+      await expect(client.createListener('test-queue', onMessageMock)).rejects.toThrow('channel boom')
+      expect(client.getHealth().expectedConsumers).toBe(0)
+    })
+  })
+
+  describe('Recreating a queue with different arguments (406)', () => {
+    const getHandler = (mock: Mock, event: string) => mock.mock.calls.find(([name]) => name === event)?.[1]
+
+    it('closes the broken channel and keeps the replacement as the active consumer', async () => {
+      const brokenChannel = {
+        ...mockChannel,
+        on: vi.fn(),
+        close: vi.fn(),
+        assertQueue: vi.fn().mockRejectedValueOnce({ code: 406 }),
+      }
+      const freshChannel = {
+        ...mockChannel,
+        on: vi.fn(),
+        close: vi.fn(),
+        consume: vi.fn(),
+        checkQueue: vi.fn().mockResolvedValue({ messageCount: 0 }),
+        assertQueue: vi.fn().mockResolvedValue({}),
+        deleteQueue: vi.fn().mockResolvedValue({}),
+      }
+      mockConnection.createChannel.mockResolvedValueOnce(brokenChannel).mockResolvedValueOnce(freshChannel)
+
+      const client = generateClient()
+      onMessageMock.mockResolvedValue(true)
+      await client.createListener('test-queue', onMessageMock, { deadLetter: false })
+
+      expect(brokenChannel.close).toHaveBeenCalled()
+      expect(freshChannel.consume).toHaveBeenCalledWith('test-queue', expect.any(Function))
+      expect(client.getHealth().activeConsumers).toBe(1)
+
+      // A late 'close' from the stale broken channel must not evict the replacement.
+      getHandler(brokenChannel.on as Mock, 'close')()
+      expect(client.getHealth().activeConsumers).toBe(1)
+    })
+  })
 })
