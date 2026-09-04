@@ -61,9 +61,13 @@ You can ask the developer for references.
 
 ## Documentation & Comments
 
-- Comments should clarify _why_, not _what_, unless logic is non-obvious
-- Comments should only be added when the logic is complex or a non-obvious invariant must be preserved
-- Keep JSDoc on public interfaces and types — consumers of the library rely on them
+- The default is **no comment**. Add one only when it says something the code, the names, and the types cannot: a non-obvious constraint, an invariant, an external-bug workaround (with the link), a footgun, or where a magic value came from. One or two lines.
+- **The test name is the specification** — no comment paraphrasing it, and no `Arrange` / `Act` / `Assert` step headers. A blank line does that job.
+- No comment that restates the line below it, and none narrating change history, PR numbers, or ISS-IDs — that belongs in the commit message or PR description.
+- If a comment is needed because the name is bad, **fix the name**.
+- A comment your change made false is your mess — fix it or delete it.
+- Canonical rule: `CLAUDE.md` → "No Unnecessary Comments".
+- Keep JSDoc on public interfaces and types — consumers of the library rely on them, so make each line state a contract rather than repeat the signature.
 
 ## Interaction & Response Style
 
