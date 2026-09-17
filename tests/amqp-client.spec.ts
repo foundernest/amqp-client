@@ -129,6 +129,19 @@ describe('AMQPClient', () => {
       expect(mockChannel.on).toHaveBeenCalledWith('close', expect.any(Function))
     })
 
+    it('gives the broker the same redelivery cap the consumer enforces', () => {
+      const args = mockChannel.assertQueue.mock.calls[0][1].arguments
+
+      expect(args['x-delivery-limit']).toBe(args['x-max-retries'])
+    })
+
+    it('does not cap redeliveries on the dead letter queue, which has nowhere to forward to', () => {
+      const dlqCall = mockChannel.assertQueue.mock.calls.find((call: unknown[]) => call[0] === 'test-queue.dlq')
+
+      expect(dlqCall).toBeDefined()
+      expect(dlqCall![1].arguments).not.toHaveProperty('x-delivery-limit')
+    })
+
     it('should assert the queue with correct options', () => {
       expect(mockChannel.assertQueue).toHaveBeenCalledWith('test-queue', {
         durable: true,
@@ -136,6 +149,7 @@ describe('AMQPClient', () => {
         arguments: {
           'x-queue-type': 'quorum',
           'x-max-retries': 3,
+          'x-delivery-limit': 3,
           'x-dead-letter-exchange': 'test-queue.dlx',
           'x-dead-letter-routing-key': 'test-queue.dead',
         },
