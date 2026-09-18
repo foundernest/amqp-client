@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # No lockfile in this repository, so npm ci is not available.
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # Publishing rebuilds dist/ from source, so a build that only breaks at release time would be
+      # found far too late. This runs it at review time instead.
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npx vitest run
