@@ -383,6 +383,20 @@ describe('AMQPClient', () => {
       expect(mockChannel.consume).toHaveBeenCalledTimes(1)
     })
 
+    it('never rejects out of the consume callback, which amqplib does not await', async () => {
+      const throwingLogger = {
+        ...console,
+        warn: () => {
+          throw new Error('logger blew up')
+        },
+      }
+      const clientWithBadLogger = generateClient({}, throwingLogger)
+      await clientWithBadLogger.createListener('test-queue', onMessageMock)
+      const cancelOnBadLogger = mockChannel.consume.mock.calls.at(-1)![1]
+
+      await expect(cancelOnBadLogger(null)).resolves.toBeUndefined()
+    })
+
     it('closes the cancelled channel instead of leaving it open', async () => {
       await cancel()
 

@@ -293,7 +293,13 @@ export class AMQPClient implements AMQPClientInterface {
     this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
     await channel.consume(queueName, async (msg) => {
       if (!msg) {
-        await this.handleConsumerCancelled(queueName, channel)
+        // amqplib does not await this callback, so anything that rejects here becomes an unhandled
+        // rejection rather than an error the caller can act on.
+        try {
+          await this.handleConsumerCancelled(queueName, channel)
+        } catch (error) {
+          this.logger.error(`💥 Failed to handle the consumer cancellation for queue: ${queueName}`, error)
+        }
         return
       }
 
