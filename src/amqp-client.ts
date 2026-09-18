@@ -375,7 +375,11 @@ export class AMQPClient implements AMQPClientInterface {
       exclusive: false,
       arguments: {
         'x-queue-type': 'quorum',
+        // x-max-retries is ours and is enforced in the consumer; x-delivery-limit is RabbitMQ's and is
+        // enforced by the broker. Both are needed: a consumer killed mid-message (OOM, eviction) never
+        // reaches the nack that applies the first. Same source value so they cannot drift.
         'x-max-retries': this.options.messageExpiration.defaultMaxRetries,
+        'x-delivery-limit': this.options.messageExpiration.defaultMaxRetries,
       },
     }
 
