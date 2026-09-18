@@ -7,9 +7,12 @@ on:
     types: [published]
   workflow_dispatch:
 
+# Trusted publishing: the workflow authenticates to npm over OIDC, so there is no long-lived token in
+# repository secrets. id-token is what mints that credential; it also makes npm attach provenance
+# automatically, with no --provenance flag.
 permissions:
   contents: read
-  id-token: write # npm provenance, available because this repository is public
+  id-token: write
 
 jobs:
   publish:
@@ -49,7 +52,10 @@ jobs:
       - name: Test
         run: npx vitest run
 
+      # Trusted publishing needs npm >= 11.5.1; setup-node ships whatever npm came with the Node
+      # release, so this pins it rather than leaving it to chance.
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@latest
+
       - name: Publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
