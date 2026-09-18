@@ -1,0 +1,61 @@
+name: Publish to npm
+
+# Publishing is deliberately tied to a GitHub Release rather than to pushes on main: the version
+# lives in package.json, and a release is the explicit act that says "ship that version".
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Trusted publishing: the workflow authenticates to npm over OIDC, so there is no long-lived token in
+# repository secrets. id-token is what mints that credential; it also makes npm attach provenance
+# automatically, with no --provenance flag.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # The release tag and package.json are maintained by hand and can disagree. Publishing the
+      # wrong version is not revocable — npm forbids re-publishing a version number — so this fails
+      # before anything is built.
+      - name: Check the release tag matches package.json
+        if: github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          package="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$package" ]; then
+            echo "Release tag $GITHUB_REF_NAME resolves to $tag but package.json is $package"
+            exit 1
+          fi
+
+      # No lockfile in this repository, so npm ci is not available.
+      - name: Install dependencies
+        run: npm install
+
+      # dist/ is committed and goes stale; whatever is in git is discarded and rebuilt here so the
+      # published tarball can only ever contain the source that was released.
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npx vitest run
+
+      # Trusted publishing needs npm >= 11.5.1; setup-node ships whatever npm came with the Node
+      # release, so this pins it rather than leaving it to chance.
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish
+        run: npm publish --access public
