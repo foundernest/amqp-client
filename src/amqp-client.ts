@@ -257,6 +257,23 @@ export class AMQPClient implements AMQPClientInterface {
     }
   }
 
+  // amqplib delivers a null message when the broker cancels the consumer, which happens when the queue
+  // is deleted or re-declared under it. The channel stays open, so neither 'close' nor 'error' fires
+  // and forgetConsumer is never reached: without this the listener goes silently deaf while getHealth
+  // still counts it as active.
+  private async handleConsumerCancelled(queueName: string, channel: amqp.Channel): Promise<void> {
+    this.logger.warn(`⚠️ Consumer cancelled by the broker for queue: ${queueName}`)
+    this.forgetConsumer(queueName, channel)
+    await this.discardChannel(channel)
+
+    const registration = this.listeners.get(queueName)
+    if (!registration) {
+      return
+    }
+
+    await this.resubscribeListener(queueName, registration)
+  }
+
   private async subscribe<T extends object>(
     queueName: string,
     onMessage: (msg: AMQPMessage<T>) => Promise<boolean>,
@@ -270,6 +287,7 @@ export class AMQPClient implements AMQPClientInterface {
     this.logger.info(`📬️ Starting to consume messages from queue: ${queueName}`)
     await channel.consume(queueName, async (msg) => {
       if (!msg) {
+        await this.handleConsumerCancelled(queueName, channel)
         return
       }
 
