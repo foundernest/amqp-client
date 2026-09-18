@@ -16,6 +16,7 @@
     "build:esm": "tsc --project tsconfig.json",
     "build:types": "tsc --declaration --emitDeclarationOnly",
     "build": "tsc && npm run build:esm && npm run build:types && rollup -c",
+    "prepublishOnly": "npm run build",
     "format": "prettier --write ."
   },
   "license": "MIT",
