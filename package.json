@@ -1,6 +1,14 @@
 {
   "name": "foundernest-amqp-client",
   "version": "0.4.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/foundernest/amqp-client.git"
+  },
+  "homepage": "https://github.com/foundernest/amqp-client#readme",
+  "bugs": {
+    "url": "https://github.com/foundernest/amqp-client/issues"
+  },
   "description": "AMQP Client",
   "author": "FounderNest",
   "default": "./dist/index.js",
