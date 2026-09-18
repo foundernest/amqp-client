@@ -353,6 +353,60 @@ describe('AMQPClient', () => {
     })
   })
 
+  describe('When the broker cancels a consumer', () => {
+    let client: AMQPClient
+    let cancel: () => Promise<void>
+
+    beforeEach(async () => {
+      onMessageMock.mockResolvedValue(true)
+      client = generateClient()
+      await client.createListener('test-queue', onMessageMock)
+
+      const consumeCallback = mockChannel.consume.mock.calls[0][1]
+      cancel = () => consumeCallback(null)
+    })
+
+    it('subscribes again so the listener does not go deaf', async () => {
+      await cancel()
+
+      expect(mockChannel.consume).toHaveBeenCalledTimes(2)
+      expect(mockChannel.consume).toHaveBeenLastCalledWith('test-queue', expect.any(Function))
+    })
+
+    it('does not resubscribe when the cancellation arrives during close, so close stays terminal', async () => {
+      mockChannel.close.mockImplementationOnce(async () => {
+        await cancel()
+      })
+
+      await client.close()
+
+      expect(mockChannel.consume).toHaveBeenCalledTimes(1)
+    })
+
+    it('closes the cancelled channel instead of leaving it open', async () => {
+      await cancel()
+
+      expect(mockChannel.close).toHaveBeenCalled()
+    })
+
+    it('reports the consumer as active again once it has resubscribed', async () => {
+      await cancel()
+
+      expect(client.getHealth()).toMatchObject({ expectedConsumers: 1, activeConsumers: 1, healthy: true })
+    })
+
+    it('swallows a failed resubscribe and keeps the registration for the next reconnect', async () => {
+      mockChannel.assertQueue.mockRejectedValueOnce(new Error('broker gone'))
+
+      await expect(cancel()).resolves.toBeUndefined()
+      expect(client.getHealth()).toMatchObject({ expectedConsumers: 1 })
+
+      // clearAllMocks resets calls but not queued implementations, so an unconsumed
+      // mockRejectedValueOnce would surface in an unrelated test.
+      mockChannel.assertQueue.mockReset()
+    })
+  })
+
   describe('When a queue exists with different arguments', () => {
     it('should handle PRECONDITION_FAILED error and recreate the queue if empty', async () => {
       const client = generateClient()
