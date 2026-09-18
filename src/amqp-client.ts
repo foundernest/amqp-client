@@ -262,6 +262,12 @@ export class AMQPClient implements AMQPClientInterface {
   // and forgetConsumer is never reached: without this the listener goes silently deaf while getHealth
   // still counts it as active.
   private async handleConsumerCancelled(queueName: string, channel: amqp.Channel): Promise<void> {
+    // close() cancels these consumers itself and tears the maps down after; resubscribing here would
+    // outlive it and leave a live channel behind, so close() would stop being terminal.
+    if (this.isClosing) {
+      return
+    }
+
     this.logger.warn(`⚠️ Consumer cancelled by the broker for queue: ${queueName}`)
     this.forgetConsumer(queueName, channel)
     await this.discardChannel(channel)

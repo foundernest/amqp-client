@@ -373,6 +373,16 @@ describe('AMQPClient', () => {
       expect(mockChannel.consume).toHaveBeenLastCalledWith('test-queue', expect.any(Function))
     })
 
+    it('does not resubscribe when the cancellation arrives during close, so close stays terminal', async () => {
+      mockChannel.close.mockImplementationOnce(async () => {
+        await cancel()
+      })
+
+      await client.close()
+
+      expect(mockChannel.consume).toHaveBeenCalledTimes(1)
+    })
+
     it('closes the cancelled channel instead of leaving it open', async () => {
       await cancel()
 
