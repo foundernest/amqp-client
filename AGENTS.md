@@ -11,7 +11,7 @@ You can ask the developer for references.
 
 ## Coding Standards
 
-- Keep pull requests small and focused—ideally under 300 changed lines
+- Keep each pull request focused on one slice and safe to deploy on its own — size is not a limit (see "Scope Control")
 - Follow clean code principles: descriptive names, single-responsibility, modular functions/classes
 - This is a **published library** — all changes to exported types, interfaces, or method signatures are breaking changes and require careful consideration
 
@@ -137,9 +137,13 @@ All agents must follow this protocol whenever they create, update, review, or ma
 
 ### Follow-up PRs and Stacked PRs
 
-- Make dependency chains explicit when the work is part of a sequence
-- Add all blocking or prerequisite PRs in the `## Dependencies` section
-- If the PR is a follow-up to an earlier PR, briefly explain what was intentionally deferred
+- When a change spans several PRs, open them together as a GitHub stack (`gh stack`; see https://docs.github.com/en/pull-requests/get-started/about-stacked-prs) rather than one at a time: one branch per PR, each branched from the one below, the bottom one from the default branch.
+- Open the whole stack in one go (`gh stack submit`), so reviewers see every PR at once and review each on its own diff.
+- In `## Dependencies`, give the PR's place in the stack and the PRs below it.
+- Merge the top PR to ship the whole stack, or a lower PR to ship it and everything below it. PRs merge bottom-up.
+- Fix a review finding on the branch of the PR it was raised on, then carry it up with `gh stack rebase --upstack` and `gh stack push`.
+- When stacked PRs aren't available (`gh stack` not installed, or not enabled for the repository), open each PR with `--base` set to the branch below and merge bottom-up, one PR at a time: merging the top of a classic chain only merges it into the branch below.
+- If the PR follows up an earlier, already-merged PR, briefly explain what was intentionally deferred from it.
 
 ### PR Review Comments
 
@@ -150,7 +154,8 @@ All agents must follow this protocol whenever they create, update, review, or ma
 
 ### Scope Control
 
-- Keep PRs small and reviewable, ideally under 300 changed lines, unless the user explicitly requests otherwise or the change cannot be split safely
+- Size is not a limit: a PR can be as large as its slice needs. Split a slice only when a part must ship first to stay safe (a migration or contract change consumers must tolerate first, a backend change the UI needs deployed first) or when it mixes unrelated concerns a reviewer would judge apart.
+- Every PR must be safe to reach production on its own: it builds, its tests pass, and it breaks nothing with the PRs stacked above it absent. Hide unfinished behavior behind a flag and keep contracts backward-compatible until the PR that drops the old shape.
 - Do not mix refactors with feature work unless the refactor is required for the implementation
 
 ### Final Verification Before PR Creation
